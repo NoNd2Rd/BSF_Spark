@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# 🚀 Lakehouse Loader Script
+# Usage:
+#   ./bsf-load-lakehouse.sh --mode full [--option short]
+
+# ────────────── Defaults ──────────────
+MODE="candidates"
+OPTION=""
+
+# ────────────── Parse arguments ──────────────
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --mode)
+            MODE="$2"
+            shift
+            ;;
+        --option)
+            OPTION="$2"
+            shift
+            ;;
+        *)
+            echo "❌ Unknown parameter passed: $1"
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+# ────────────── Log setup ──────────────
+LOG_DIR=/var/log/bsf
+mkdir -p "$LOG_DIR"
+
+TS=$(date +"%Y%m%d_%H%M%S")
+
+# Use the option parameter if passed, else "all"
+OPTION_NAME=${OPTION:-all}
+
+PARAMS="mode_${MODE}_option_${OPTION_NAME}"
+LOG_FILE="$LOG_DIR/bsf_load_${PARAMS}_${TS}.log"
+
+# Redirect stdout/stderr
+exec >> "$LOG_FILE" 2>&1
+#set -x
+
+# Keep last 10 logs
+ls -1t "$LOG_DIR"/bsf_load_"${PARAMS}"_*.log 2>/dev/null | tail -n +11 | xargs -r rm -f
+
+echo "🚀 Starting lakehouse load at $(date)"
+echo "📦 Mode: $MODE"
+echo "⏰ Option: $OPTION_NAME"
+
+
+# ────────────── Activate Python virtualenv ──────────────
+source $HOME/.venv/python3.9_bsf/bin/activate
+
+# ────────────── Run Python loader ──────────────
+if [[ -n "$OPTION" ]]; then
+    python3 /srv/jupyter/bsf_analysis/bsf_load_lakehouse.py --mode "$MODE" --option "$OPTION"
+else
+    python3 /srv/jupyter/bsf_analysis/bsf_load_lakehouse.py --mode "$MODE"
+fi
+
+echo "✅ Lakehouse load finished at $(date)"
