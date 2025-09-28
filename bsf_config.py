@@ -121,7 +121,7 @@ CONFIG = {
         },
 
         "fundamental_weights": {
-            "valuation": 0.3,
+            "valuation": 0.2,
             "profitability": 0.3,
             "DebtLiquidity": 0.2,
             "Growth": 0.2,
@@ -139,9 +139,6 @@ CONFIG = {
             "doji_max": 0.09,     # ↑ Increased max proportion from 0.08 to allow more Doji detection
             "long_body_base": 0.4  # ↑ Increased from 0.35 to prefer longer bodies for stronger bullish/bearish signals
         },
-        "phases": {
-            "phase1": {"topN": 25}  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
-        }
     },
     
     "user2": {
@@ -154,6 +151,12 @@ CONFIG = {
                 "slope_horizon": 5   # same as default; trend horizon unchanged
             }
         },
+        "phases": {
+            "phase1": {"topN": 10}  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+            "phase2": {"topN": 5},  # top N for phase2
+            "phase3": {"topN": 2},   # top N for phase3
+        },
+        }
         "candle_params": {
             "doji_thresh": 0.09   # ↑ Increased Doji detection threshold from 0.08 to be more lenient
         },
@@ -185,6 +188,11 @@ CONFIG = {
                 "roc_thresh": 0.02, # same as default
                 "slope_horizon": 10 # same as default
             }
+        },
+           "phases": {
+                "phase1": {"topN": 10}  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+                "phase2": {"topN": 5},  # top N for phase2
+                "phase3": {"topN": 2},   # top N for phase3
         },
         "candle_params": {
             "hammer_base": 0.18,    # ↑ More sensitive to Hammer candles than default 0.15

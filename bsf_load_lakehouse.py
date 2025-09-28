@@ -14,13 +14,13 @@ from bsf_env import (
 from bsf_dbutilities import DBUtils
 
 from bsf_candlesticks import (
-    add_candle_patterns_fast,
-    add_trend_filters_fast,
+    add_candle_patterns_optimized,
+    add_trend_filters_optimized,
     finalize_signals_optimized,
-    add_signal_strength_fast,
-    add_batch_metadata,
+    add_signal_strength_optimized,
+    add_batch_metadata_optimized,
     compute_fundamental_score_optimized,
-    add_confirmed_signals
+    add_confirmed_signals_optimized
 )
 
 from bsf_candidates import (
@@ -34,6 +34,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.functions import lit, current_timestamp, broadcast
 from pyspark.sql.types import *
 from pyspark.sql.window import Window
+from pyspark import StorageLevel
 
 # ─── Data Science Stack ──────────────────────────────────────
 import pandas as pd
@@ -42,6 +43,8 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import reduce
+import math
+import sys
 
 # ─── Global ──────────────────────────────────────
 spark = None
@@ -250,270 +253,25 @@ def load_candidates():
     db.write_candidates(df_phase3_enriched, df_topN_companies)
     db.create_bsf(engine, topN_companies_dict)
 
-def load_signals(timeframe=None, option='full'):
+
+import math
+import pandas as pd
+from datetime import datetime
+
+def load_signals(timeframe=None, option="full", batch_size=1000):
     """
-    Fully Spark-native single-node signal processing.
-    Creates a single DataFrame upfront and filters by company during processing.
+    Pandas-based signal processing for small node (4 cores, 6 GB RAM).
+    Uses batching per company and .pipe() to chain transformations.
     """
-
+    incremental = True if option.lower() == "incremental" else False
+    if not incremental:
+        db.clear_hive_table('bsf', 'history_signals')
+        db.clear_hive_table('bsf', 'history_signals_last_all')
+        db.clear_hive_table('bsf', 'history_signals_last')
     # -------------------------------
-    # Load stock + fundamentals
-    # -------------------------------
-    sdf_stock = spark.table("bsf.companystockhistory").alias("s")
-    sdf_fund  = spark.table("bsf.companyfundamental").alias("f")
-
-    # Join fundamentals <= stock date
-    sdf_joined = sdf_stock.join(
-        sdf_fund,
-        (F.col("s.CompanyId") == F.col("f.CompanyId")) &
-        (F.col("f.FundamentalDate") <= F.col("s.StockDate")),
-        "left"
-    )
-
-    # Window to get latest fundamental per stock row
-    w = Window.partitionBy("s.CompanyId", "s.StockDate").orderBy(F.col("f.FundamentalDate").desc())
-
-    # Select only the columns you want, with aliases to match SQL
-    sdf_all = (
-        sdf_joined
-        .withColumn("rn", F.row_number().over(w))
-        .filter(F.col("rn") == 1)
-        .drop("rn")
-        .select(
-            F.col("s.CompanyId"),
-            F.col("s.StockDate"),
-            F.col("s.OpenPrice").alias("Open"),
-            F.col("s.HighPrice").alias("High"),
-            F.col("s.LowPrice").alias("Low"),
-            F.col("s.ClosePrice").alias("Close"),
-            F.col("s.StockVolume").alias("Volume"),
-            F.col("f.FundamentalDate"),
-            F.col("f.PeRatio"),
-            F.col("f.PegRatio"),
-            F.col("f.PbRatio"),
-            F.col("f.ReturnOnEquity"),
-            F.col("f.GrossMarginTTM"),
-            F.col("f.NetProfitMarginTTM"),
-            F.col("f.TotalDebtToEquity"),
-            F.col("f.CurrentRatio"),
-            F.col("f.InterestCoverage"),
-            F.col("f.EpsChangeYear"),
-            F.col("f.RevChangeYear"),
-            F.col("f.Beta"),
-            F.col("f.ShortIntToFloat")
-        )
-        .cache()
-    )
-    keep_cols = [
-        "UserId","CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
-        "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp", "MomentumDown",
-        "ConfirmedUpTrend", "ConfirmedDownTrend", "Volatility", "LowVolatility", "HighVolatility", "SignalStrength",
-        "SignalStrengthHybrid", "ActionConfidence",
-        "BullishStrengthHybrid", "BearishStrengthHybrid", "SignalDuration",
-        "PatternAction", "CandleAction","UpTrend_Return",
-        "CandidateAction", "Action", "TomorrowAction", "TimeFrame"
-        ]
-    print(f"⚡️ Full DataFrame cached: {sdf_all.count():,} rows.")
-
-    # -------------------------------
-    # Users & timeframes
-    # -------------------------------
-    users = db.get_users(engine)
-    if timeframe is None:
-        timeframes_items = CONFIG["timeframe_map"].items()
-    else:
-        timeframes_items = [(timeframe, CONFIG["timeframe_map"].get(timeframe, CONFIG["timeframe_map"]["Daily"]))]
-    # Collect all CompanyIds once
-    company_ids = [row.CompanyId for row in sdf_all.select("CompanyId").distinct().collect()]
-    # -------------------------------
-    # Process each user × timeframe × company
-    # -------------------------------
-    for user in users:
-        for tf, tf_window in timeframes_items:
-            print(f"🔄 Processing {tf:<6} for user {user} ...")
-
-            # Initialize list to collect transformed companies
-            df_list = []
-
-            for cid in company_ids:
-                # Filter for a single company
-                sdf_company = sdf_all.filter(F.col("CompanyId") == cid)
-
-                # Apply transforms
-                sdf_processed = (
-                    sdf_company
-                    .transform(lambda df: add_candle_patterns_fast(df, tf_window=tf_window, user=user))
-                    .transform(lambda df: add_trend_filters_fast(df, timeframe=tf, user=user))
-                    .transform(add_confirmed_signals)
-                    .transform(lambda df: compute_fundamental_score_optimized(df, user=user))
-                    .transform(lambda df: finalize_signals_optimized(df, tf=tf, tf_window=tf_window, use_fundamentals=True, user=user))
-                    .transform(add_signal_strength_fast)
-                    .transform(lambda df: add_batch_metadata(df, timeframe=tf, user=user, ingest_ts=ingest_ts))
-                    .select(*keep_cols)  # <-- trim here
-                )
-
     
-                df_list.append(sdf_processed)
-
-            # Union all companies for this timeframe × user
-            sdf_final = df_list[0]
-            if len(df_list) > 1:
-                for sdf_part in df_list[1:]:
-                    sdf_final = sdf_final.unionByName(sdf_part)
-
-            sdf_final = sdf_final.cache()
-            _ = sdf_final.count()  # materialize cache
-
-            # Write signals
-            run_with_logging(
-                db.write_signals,
-                icon="⏳",
-                is_subtask=True,
-                title=f"Write Candidate Lakehouse Partition: ({tf})",
-                sdf=sdf_final
-            )
-
-            sdf_final.unpersist()
-            print(f"✅ Signals written for {tf} / user {user}")
-
+    # Load stock + fundamentals into pandas
     # -------------------------------
-    # Cleanup
-    # -------------------------------
-    sdf_all.unpersist()
-    print("✅ All signals processed and written.")
-
-
-def load_signals_spark_native(timeframe=None, option='full'):
-    """
-    Fully Spark-native signal processing for all companies at once.
-    Avoids per-company Python loops and leverages Spark partitioning.
-    """
-
-    # -------------------------------
-    # Load stock + fundamentals
-    # -------------------------------
-    sdf_stock = spark.table("bsf.companystockhistory").alias("s")
-    sdf_fund  = spark.table("bsf.companyfundamental").alias("f")
-
-    # Join fundamentals <= stock date
-    sdf_joined = sdf_stock.join(
-        sdf_fund,
-        (F.col("s.CompanyId") == F.col("f.CompanyId")) &
-        (F.col("f.FundamentalDate") <= F.col("s.StockDate")),
-        "left"
-    )
-
-    # Window to get latest fundamental per stock row
-    w = Window.partitionBy("s.CompanyId", "s.StockDate").orderBy(F.col("f.FundamentalDate").desc())
-
-    # Select only columns needed
-    sdf_all = (
-        sdf_joined
-        .withColumn("rn", F.row_number().over(w))
-        .filter(F.col("rn") == 1)
-        .drop("rn")
-        .select(
-            F.col("s.CompanyId"),
-            F.col("s.StockDate"),
-            F.col("s.OpenPrice").alias("Open"),
-            F.col("s.HighPrice").alias("High"),
-            F.col("s.LowPrice").alias("Low"),
-            F.col("s.ClosePrice").alias("Close"),
-            F.col("s.StockVolume").alias("Volume"),
-            F.col("f.FundamentalDate"),
-            F.col("f.PeRatio"),
-            F.col("f.PegRatio"),
-            F.col("f.PbRatio"),
-            F.col("f.ReturnOnEquity"),
-            F.col("f.GrossMarginTTM"),
-            F.col("f.NetProfitMarginTTM"),
-            F.col("f.TotalDebtToEquity"),
-            F.col("f.CurrentRatio"),
-            F.col("f.InterestCoverage"),
-            F.col("f.EpsChangeYear"),
-            F.col("f.RevChangeYear"),
-            F.col("f.Beta"),
-            F.col("f.ShortIntToFloat")
-        )
-        .cache()
-    )
-
-    print(f"⚡️ Full DataFrame cached: {sdf_all.count():,} rows.")
-
-    # -------------------------------
-    # Users & timeframes
-    # -------------------------------
-    users = db.get_users(engine)
-    if timeframe is None:
-        timeframes_items = CONFIG["timeframe_map"].items()
-    else:
-        timeframes_items = [(timeframe, CONFIG["timeframe_map"].get(timeframe, CONFIG["timeframe_map"]["Daily"]))]
-
-    keep_cols = [
-        "UserId","CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
-        "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp", "MomentumDown",
-        "ConfirmedUpTrend", "ConfirmedDownTrend", "Volatility", "LowVolatility", "HighVolatility", "SignalStrength",
-        "SignalStrengthHybrid", "ActionConfidence",
-        "BullishStrengthHybrid", "BearishStrengthHybrid", "SignalDuration",
-        "PatternAction", "CandleAction","UpTrend_Return",
-        "CandidateAction", "Action", "TomorrowAction", "TimeFrame"
-    ]
-
-    ingest_ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-
-    # -------------------------------
-    # Process all users × timeframes
-    # -------------------------------
-    for user in users:
-        for tf, tf_window in timeframes_items:
-            print(f"🔄 Processing {tf:<6} for user {user} ...")
-
-            sdf_processed = (
-                sdf_all
-                .transform(lambda df: add_candle_patterns_fast(df, tf_window=tf_window, user=user))
-                .transform(lambda df: add_trend_filters_fast(df, timeframe=tf, user=user))
-                .transform(add_confirmed_signals)
-                .transform(lambda df: compute_fundamental_score(df, user=user))
-                .transform(lambda df: finalize_signals_fast(df, tf=tf, tf_window=tf_window, use_fundamentals=True, user=user))
-                .transform(add_signal_strength_fast)
-                .transform(lambda df: add_batch_metadata(df, timeframe=tf, user=user, ingest_ts=ingest_ts))
-                .select(*keep_cols)
-                .repartition("CompanyId")  # optional: parallelize by company
-                .cache()
-            )
-
-            # Materialize cache
-            _ = sdf_processed.count()
-
-            # Write signals
-            run_with_logging(
-                db.write_signals,
-                icon="⏳",
-                is_subtask=True,
-                title=f"Write Candidate Lakehouse Partition: ({tf})",
-                sdf=sdf_processed
-            )
-
-            sdf_processed.unpersist()
-            print(f"✅ Signals written for {tf} / user {user}")
-
-
-def load_signals_production(timeframe=None, option='full'):
-    """
-    Fully Spark-native, parallelized, optimized signal processing.
-    Features:
-        - Loop-free processing across all companies
-        - Optimized fundamental & finalize signals (window-based)
-        - Dynamic repartitioning for max CPU utilization
-        - Minimal caching and triggered execution
-        - Compatible with Spark UI for real-time DAG visibility
-    """
-
-    # -------------------------------
-    # Optional shuffle tuning
-    # -------------------------------
-    spark.conf.set("spark.sql.adaptive.enabled", True)  # enable adaptive query execution
-
     # -------------------------------
     # Load stock + fundamentals
     # -------------------------------
@@ -560,7 +318,8 @@ def load_signals_production(timeframe=None, option='full'):
     )
 
     print(f"⚡️ Loaded full DataFrame: {sdf_all.count():,} rows.")
-
+    df_all = sdf_all.toPandas()
+    
     # -------------------------------
     # Users & timeframes
     # -------------------------------
@@ -571,65 +330,69 @@ def load_signals_production(timeframe=None, option='full'):
         timeframes_items = [(timeframe, CONFIG["timeframe_map"].get(timeframe, CONFIG["timeframe_map"]["Daily"]))]
 
     keep_cols = [
-        "UserId","CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
-        "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp", "MomentumDown",
-        "ConfirmedUpTrend", "ConfirmedDownTrend", "Volatility", "LowVolatility", "HighVolatility", "SignalStrength",
-        "SignalStrengthHybrid", "ActionConfidence",
-        "BullishStrengthHybrid", "BearishStrengthHybrid", "SignalDuration",
-        "PatternAction", "CandleAction","UpTrend_Return",
-        "CandidateAction", "Action", "TomorrowAction", "TimeFrame"
+        "UserId","CompanyId","StockDate","Open","High","Low","Close","TomorrowClose","Return","TomorrowReturn",
+        "MA","MA_slope","UpTrend_MA","DownTrend_MA","MomentumUp","MomentumDown",
+        "ConfirmedUpTrend","ConfirmedDownTrend","Volatility","LowVolatility","HighVolatility","SignalStrength",
+        "SignalStrengthHybrid","ActionConfidence",
+        "BullishStrengthHybrid","BearishStrengthHybrid","SignalDuration",
+        "PatternAction","CandleAction","UpTrend_Return",
+        "CandidateAction","Action","TomorrowAction","TimeFrame"
     ]
-
-    ingest_ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    # -------------------------------
+    # Process all users × timeframes in batches
+    # -------------------------------
+    company_ids = df_all["CompanyId"].unique()
 
     # -------------------------------
-    # Dynamic partitioning helper
-    # -------------------------------
-    def optimal_partitions(df, target_tasks_per_core=3):
-        num_cores = spark.sparkContext.defaultParallelism
-        num_companies = df.select("CompanyId").distinct().count()
-        partitions = max(num_cores * target_tasks_per_core, num_companies)
-        return partitions
-
-    partitions = optimal_partitions(sdf_all)
-    print(f"⚡️ Repartitioning DataFrame into {partitions} partitions for parallel execution")
-    sdf_all = sdf_all.repartition(partitions, "CompanyId")
-
-    # -------------------------------
-    # Process all users × timeframes
+    # Process each user × timeframe × company
     # -------------------------------
     for user in users:
         for tf, tf_window in timeframes_items:
             print(f"🔄 Processing {tf:<6} for user {user} ...")
+    
+            df_list = []  # collect per-company results
+    
+            for cid in company_ids:
+                # Filter for a single company
+                df_company = df_all[df_all["CompanyId"] == cid].copy()
+    
+                # Sort to preserve time order
+                df_company = df_company.sort_values("StockDate")
 
-            sdf_processed = (
-                sdf_all
-                .transform(lambda df: add_candle_patterns_fast(df, tf_window=tf_window, user=user))
-                .transform(lambda df: add_trend_filters_fast(df, timeframe=tf, user=user))
-                .transform(add_confirmed_signals)
-                .transform(lambda df: compute_fundamental_score_optimized(df, user=user))
-                .transform(lambda df: finalize_signals_optimized(df, tf=tf, tf_window=tf_window, use_fundamentals=True, user=user))
-                .transform(add_signal_strength_fast)
-                .transform(lambda df: add_batch_metadata(df, timeframe=tf, user=user, ingest_ts=ingest_ts))
-                .select(*keep_cols)
-            )
+    
+                # Apply transforms with .pipe()
+                df_processed = (
+                    df_company
+                    .pipe(add_candle_patterns_optimized, tf_window=tf_window, user=user)
+                    .pipe(add_trend_filters_optimized, timeframe=tf, user=user)
+                    .pipe(add_confirmed_signals_optimized)
+                    .pipe(compute_fundamental_score_optimized, user=user)
+                    .pipe(finalize_signals_optimized, tf=tf, tf_window=tf_window, use_fundamentals=True, user=user)
+                    .pipe(add_signal_strength_optimized)
+                    .pipe(add_batch_metadata_optimized, timeframe=tf, user=user, ingest_ts=ingest_ts)
+                )
+    
+                # Trim columns
+                df_processed = df_processed[keep_cols]
+    
+                df_list.append(df_processed)
+    
+            # Union all companies for this timeframe × user
+            if df_list:
+                df_final = pd.concat(df_list, ignore_index=True)
+   
+                # Write signals
+                run_with_logging(
+                    db.write_signals,
+                    icon="⏳",
+                    is_subtask=True,
+                    title=f"Write Candidate Lakehouse Partition: ({tf})",
+                    df=df_final   # pass pandas DataFrame instead of Spark
+                )
+        
+                print(f"✅ Signals written for {tf} / user {user}")
 
-            # Cache and trigger execution
-            sdf_processed = sdf_processed.cache()
-            print(f"⚡️ Materializing {tf} × user {user} DataFrame ...")
-            _ = sdf_processed.count()
-
-            # Write results
-            run_with_logging(
-                db.write_signals,
-                icon="⏳",
-                is_subtask=True,
-                title=f"Write Candidate Lakehouse Partition: ({tf})",
-                sdf=sdf_processed
-            )
-
-            sdf_processed.unpersist()
-            print(f"✅ Signals written for {tf} / user {user}")
+    print("✅ All signals processed.")
 
 
 # 🚀 Main
@@ -674,7 +437,7 @@ def main(mode=None, option="full", timeframe=None):
 
     elif mode == "signals":
         run_with_logging(
-                load_signals_production,
+                load_signals,
                 "⏳",
                 True,
                 f"Run Load Signals",

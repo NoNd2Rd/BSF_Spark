@@ -85,10 +85,14 @@ def init_spark(app_name: str = None,
             .config("spark.executor.instances", 1)        # single executor (best for 1 node)
             .config("spark.executor.cores", 4)            # give executor all 4 cores
             .config("spark.task.cpus", 1)
-            .config("spark.executor.memory", "4096m")     # 4 GB executor memory
-            .config("spark.executor.memoryOverhead", "1024m")  # 1 GB overhead
-            .config("spark.driver.memory", "2048m")       # 2 GB driver memory
+            .config("spark.executor.memory", "3072m")     # 4 GB executor memory
+            .config("spark.executor.memoryOverhead", "512m")  # 1 GB overhead
+            .config("spark.driver.memory", "1536m")       # 2 GB driver memory
             .config("spark.sql.shuffle.partitions", 8)    # 2× cores
+            .config("spark.memory.fraction", .5)
+            .config("spark.memory.storageFraction", .6)
+            .config("spark.sql.adaptive.enabled", "true")  
+            .config("spark.sql.adaptive.skewJoin.enabled", "true")
             .config("spark.default.parallelism", 8)       # match shuffle partitions
         )
     elif process_option == 'tall':
