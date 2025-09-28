@@ -152,11 +152,10 @@ CONFIG = {
             }
         },
         "phases": {
-            "phase1": {"topN": 10}  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+            "phase1": {"topN": 10},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
             "phase2": {"topN": 5},  # top N for phase2
             "phase3": {"topN": 2},   # top N for phase3
         },
-        }
         "candle_params": {
             "doji_thresh": 0.09   # ↑ Increased Doji detection threshold from 0.08 to be more lenient
         },
@@ -190,7 +189,7 @@ CONFIG = {
             }
         },
            "phases": {
-                "phase1": {"topN": 10}  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+                "phase1": {"topN": 10},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
                 "phase2": {"topN": 5},  # top N for phase2
                 "phase3": {"topN": 2},   # top N for phase3
         },

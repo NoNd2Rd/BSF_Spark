@@ -384,7 +384,25 @@ class DBUtils:
         sdf_chunk.write.format("delta") \
             .mode("overwrite" if overwrite_table else "append") \
             .saveAsTable("bsf.companyfundamental")
-                 
+
+    def write_signal_driver(self, sdf, show_stats: bool = False):
+    
+        if show_stats:
+            try:
+                est_bytes = sdf.rdd.map(lambda x: len(str(x))).sum()
+                est_mib = round(est_bytes / (1024 * 1024), 2)
+                print(f"        🧠 Estimated memory footprint: {est_mib} MiB")
+            except Exception as e:
+                print(f"        ❗ Memory estimation failed: {e}")
+    
+        # -------------------------------
+        # Write main funndamental table
+        # -------------------------------
+        sdf.write.format("delta") \
+            .mode("overwrite") \
+            .saveAsTable("bsf.signaldriver")    
+
+    
     def write_company(self, pdf):
         schema = StructType([
             StructField("CompanyId", IntegerType(), True),

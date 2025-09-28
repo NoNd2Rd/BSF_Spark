@@ -234,44 +234,6 @@ def load_history(chunk_size=85, option='full', lookback_days=410):
             
     print("    ✔️ All batches loaded into bsf.companystockhistory")
 
-
-def load_candidates():
-    user_keys = db.get_users(engine)
-
-    for user_key in user_keys:
-        print("Current user: {user_key}")
-              
-    db.clear_hive_table('bsf','final_candidates_enriched')
-    db.clear_hive_table('bsf','final_candidates')
- 
-    df_last = spark.table("bsf.history_signals_last")
-    df_all = spark.table("bsf.history_signals")
-    timeframe_dfs_all, timeframe_dfs   = phase_1(spark, df_all, df_last, top_n=30)
-    phase2_topN_dfs = phase_2(spark, timeframe_dfs_all, top_n_phase2=15)
-    df_phase3_enriched, df_topN_companies, phase3_enriched_dict, topN_companies_dict = phase_3(spark, phase2_topN_dfs, top_n_final=5)
-    
-    db.write_candidates(df_phase3_enriched, df_topN_companies)
-    db.create_bsf(engine, topN_companies_dict)
-
-
-import math
-import pandas as pd
-from datetime import datetime
-
-def load_signals(timeframe=None, option="full", batch_size=1000):
-    """
-    Pandas-based signal processing for small node (4 cores, 6 GB RAM).
-    Uses batching per company and .pipe() to chain transformations.
-    """
-    incremental = True if option.lower() == "incremental" else False
-    if not incremental:
-        db.clear_hive_table('bsf', 'history_signals')
-        db.clear_hive_table('bsf', 'history_signals_last_all')
-        db.clear_hive_table('bsf', 'history_signals_last')
-    # -------------------------------
-    
-    # Load stock + fundamentals into pandas
-    # -------------------------------
     # -------------------------------
     # Load stock + fundamentals
     # -------------------------------
@@ -282,8 +244,7 @@ def load_signals(timeframe=None, option="full", batch_size=1000):
         sdf_fund,
         (F.col("s.CompanyId") == F.col("f.CompanyId")) &
         (F.col("f.FundamentalDate") <= F.col("s.StockDate")),
-        "left"
-    )
+        "left")
 
     # Latest fundamental per stock row
     w = Window.partitionBy("s.CompanyId", "s.StockDate").orderBy(F.col("f.FundamentalDate").desc())
@@ -316,9 +277,50 @@ def load_signals(timeframe=None, option="full", batch_size=1000):
             F.col("f.ShortIntToFloat")
         )
     )
+    
+    # Write to Delta / Hive
+    db.write_signal_driver(sdf_all, show_stats=True)
 
-    print(f"⚡️ Loaded full DataFrame: {sdf_all.count():,} rows.")
-    df_all = sdf_all.toPandas()
+
+def load_candidates():
+    user_keys = db.get_users(engine)
+
+    for user_key in user_keys:
+        print("Current user: {user_key}")
+              
+    db.clear_hive_table('bsf','final_candidates_enriched')
+    db.clear_hive_table('bsf','final_candidates')
+ 
+    df_last = spark.table("bsf.history_signals_last")
+    df_all = spark.table("bsf.history_signals")
+    
+    timeframe_dfs_all, timeframe_dfs   = phase_1(spark, df_all, df_last, top_n=30)
+    phase2_topN_dfs = phase_2(spark, timeframe_dfs_all, top_n_phase2=15)
+    df_phase3_enriched, df_topN_companies, phase3_enriched_dict, topN_companies_dict = phase_3(spark, phase2_topN_dfs, top_n_final=5)
+    
+    db.write_candidates(df_phase3_enriched, df_topN_companies)
+    db.create_bsf(engine, topN_companies_dict)
+
+
+import math
+import pandas as pd
+from datetime import datetime
+
+def load_signals(timeframe=None, option="full", batch_size=1000):
+    """
+    Pandas-based signal processing for small node (4 cores, 6 GB RAM).
+    Uses batching per company and .pipe() to chain transformations.
+    """
+    incremental = True if option.lower() == "incremental" else False
+    if not incremental:
+        db.clear_hive_table('bsf', 'history_signals')
+        db.clear_hive_table('bsf', 'history_signals_last_all')
+        db.clear_hive_table('bsf', 'history_signals_last')
+    
+    # -------------------------------
+    # Load stock + fundamentals into pandas
+    # -------------------------------
+    df_all = spark.table("bsf.signaldriver").toPandas()
     
     # -------------------------------
     # Users & timeframes
