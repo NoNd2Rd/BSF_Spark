@@ -67,7 +67,7 @@ def select_best_model(metrics_dict):
     return best_name, scores
 
 
-def phase_1(spark, df_all, df_last,top_n=100):
+def phase_1(spark, user, df_all, df_last,top_n=100):
     # -----------------------------
     # Filter only Buy actions from last-row DF
     # -----------------------------
@@ -136,8 +136,9 @@ def phase_1(spark, df_all, df_last,top_n=100):
     # -----------------------------
     # List of timeframes
     # -----------------------------
-    timeframes = ["Short", "Swing", "Long", "Daily"]
-    
+    #timeframes = ["Short", "Swing", "Long", "Daily"]
+    timeframes = list(load_settings(str(user))["timeframe_map"].keys()) # → ["Daily", "Short", "Swing", "Long"]
+
     # -----------------------------
     # Dictionaries to store per-timeframe DataFrames
     # -----------------------------
@@ -158,7 +159,7 @@ def phase_1(spark, df_all, df_last,top_n=100):
     print(f"     ✅ Stage 1 completed: Top {top_n} candidates selected per timeframe")
     return timeframe_dfs_all, timeframe_dfs
 
-def phase_2(spark, timeframe_dfs_all, top_n_phase2=20):
+def phase_2(spark, user, timeframe_dfs_all, top_n_phase2=20):
     
     # -----------------------------
     # Parameters
@@ -425,7 +426,7 @@ def infer_season_length(ts, max_lag=30, threshold=0.3):
     m = int(peaks[0])
     return m
 
-def phase_3(spark, phase2_topN_dfs, top_n_final=10):
+def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
     
     # -----------------------------
     # Parameters

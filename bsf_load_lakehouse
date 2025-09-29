@@ -2,23 +2,23 @@
 
 # 🚀 Lakehouse Loader Script
 # Usage:
-#   ./bsf-load-lakehouse.sh --mode <mode> --option <option> [--timeframe <timeframe>]
+#   ./bsf-load-lakehouse.sh --mode <mode> [--option <option>]
 
 # ────────────── Initialize variables ──────────────
 MODE=""
 OPTION=""
-TIMEFRAME=""
 
 # ────────────── Help function ──────────────
 usage() {
-    echo "Usage: $0 --mode <mode> --option <option> [--timeframe <timeframe>]"
+    echo "Usage: $0 --mode <mode> [--option <option>]"
     echo
     echo "Required arguments:"
-    echo "  --mode       Mode of operation: load or signals"
+    echo "  --mode       Mode of operation: history, signals, candidates"
+    echo
+    echo "Optional arguments (only for history mode):"
     echo "  --option     Option to use: full or incremental"
     echo
-    echo "Optional arguments:"
-    echo "  --timeframe  Timeframe to load: daily, short, long, swing"
+    echo "Other:"
     echo "  -h, --help   Show this help message"
     exit 1
 }
@@ -37,10 +37,6 @@ while [[ "$#" -gt 0 ]]; do
             OPTION="$2"
             shift
             ;;
-        --timeframe)
-            TIMEFRAME="$2"
-            shift
-            ;;
         *)
             echo "❌ Unknown parameter: $1"
             usage
@@ -55,25 +51,26 @@ if [[ -z "$MODE" ]]; then
     usage
 fi
 
-if [[ -z "$OPTION" ]]; then
-    echo "❌ --option is required"
-    usage
-fi
-
 # ────────────── Validate allowed values ──────────────
 if [[ "$MODE" != "history" && "$MODE" != "signals" && "$MODE" != "candidates" ]]; then
     echo "❌ Invalid --mode: $MODE. Allowed values: history, signals, candidates"
     usage
 fi
 
-if [[ "$OPTION" != "full" && "$OPTION" != "incremental" ]]; then
-    echo "❌ Invalid --option: $OPTION. Allowed values: full, incremental"
-    usage
-fi
-
-if [[ -n "$TIMEFRAME" && "$TIMEFRAME" != "daily" && "$TIMEFRAME" != "short" && "$TIMEFRAME" != "long" && "$TIMEFRAME" != "swing" ]]; then
-    echo "❌ Invalid --timeframe: $TIMEFRAME. Allowed values: daily, short, long, swing"
-    usage
+if [[ "$MODE" == "history" ]]; then
+    if [[ -z "$OPTION" ]]; then
+        echo "❌ --option is required when --mode=history"
+        usage
+    fi
+    if [[ "$OPTION" != "full" && "$OPTION" != "incremental" ]]; then
+        echo "❌ Invalid --option: $OPTION. Allowed values: full, incremental"
+        usage
+    fi
+else
+    if [[ -n "$OPTION" ]]; then
+        echo "⚠️  Ignoring --option since --mode=$MODE"
+        OPTION=""
+    fi
 fi
 
 # ────────────── Log setup ──────────────
@@ -82,32 +79,32 @@ mkdir -p "$LOG_DIR"
 
 TS=$(date +"%Y%m%d_%H%M%S")
 
-PARAMS="mode_${MODE}_option_${OPTION}"
-if [[ -n "$TIMEFRAME" ]]; then
-    PARAMS="${PARAMS}_timeframe_${TIMEFRAME}"
+PARAMS="mode_${MODE}"
+if [[ -n "$OPTION" ]]; then
+    PARAMS="${PARAMS}_option_${OPTION}"
 fi
-
 LOG_FILE="$LOG_DIR/bsf_load_${PARAMS}_${TS}.log"
 
 # Redirect stdout/stderr
 exec >> "$LOG_FILE" 2>&1
 #set -x
 
-# Keep last 10 logs
-ls -1t "$LOG_DIR"/bsf_load_"${PARAMS}"_*.log 2>/dev/null | tail -n +11 | xargs -r rm -f
+# Keep last 10 logs per mode/option
+ls -1t "$LOG_DIR"/bsf_load_mode_"${MODE}"* 2>/dev/null | tail -n +11 | xargs -r rm -f
 
 echo "🚀 Starting lakehouse load at $(date)"
 echo "📦 Mode: $MODE"
-echo "⚡️ Option: $OPTION"
-echo "⏰ Timeframe: ${TIMEFRAME:-<none>}"
+if [[ -n "$OPTION" ]]; then
+    echo "⚡️ Option: $OPTION"
+fi
 
 # ────────────── Activate Python virtualenv ──────────────
 source $HOME/.venv/python3.9_bsf/bin/activate
 
 # ────────────── Run Python loader ──────────────
-PY_ARGS="--mode $MODE --option $OPTION"
-if [[ -n "$TIMEFRAME" ]]; then
-    PY_ARGS="$PY_ARGS --timeframe $TIMEFRAME"
+PY_ARGS="--mode $MODE"
+if [[ -n "$OPTION" ]]; then
+    PY_ARGS="$PY_ARGS --option $OPTION"
 fi
 
 python3 /srv/jupyter/bsf_analysis/bsf_load_lakehouse.py $PY_ARGS

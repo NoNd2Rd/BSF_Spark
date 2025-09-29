@@ -2,12 +2,6 @@ CONFIG = {
     # -------------------------
     # Default config (baseline)
     # -------------------------
-    "timeframe_map": {
-        "Daily": 1,   # daily timeframe = 1 day
-        "Short": 3,   # short swing = 3 days
-        "Swing": 5,   # medium swing = 5 days
-        "Long": 10,   # long-term swing = 10 days
-    },
 
     # Columns we keep for writing signals (not used yet)
     "signal_keep_cols": [
@@ -17,10 +11,19 @@ CONFIG = {
         "ActionConfidenceNorm","BullishStrengthHybrid","BearishStrengthHybrid","SignalDuration","PatternAction",
         "CandleAction","UpTrend_Return","CandidateAction","Action","TomorrowAction","TimeFrame"
     ],
+
+    
     "default": {
+        "timeframe_map": {
+            "Daily": 1,   # daily timeframe = 1 day
+            "Short": 3,   # short swing = 3 days
+            "Swing": 5,   # medium swing = 5 days
+            "Long": 10,   # long-term swing = 10 days
+        },
+
         "phases": {
-            "phase1": {"topN": 20},  # top N stocks to select in phase1
-            "phase2": {"topN": 10},  # top N for phase2
+            "phase1": {"topN": 30},  # top N stocks to select in phase1
+            "phase2": {"topN": 15},  # top N for phase2
             "phase3": {"topN": 5},   # top N for phase3
         },
 
@@ -134,6 +137,10 @@ CONFIG = {
     # These overrides customize candlestick thresholds, topN selection, profiles,
     # and momentum/penny stock adjustments per user strategy.
     "user1": {
+       "timeframe_map": {
+            "Daily": 1,   # daily timeframe = 1 day
+            "Short": 3,   # short swing = 3 days
+        },
         "candle_params": {
             "doji_base": 0.025,   # ↑ Increased from 0.01 to be more sensitive to Doji patterns
             "doji_max": 0.09,     # ↑ Increased max proportion from 0.08 to allow more Doji detection
@@ -142,6 +149,10 @@ CONFIG = {
     },
     
     "user2": {
+       "timeframe_map": {
+            "Swing": 5,   # medium swing = 5 days
+            "Long": 10,   # long-term swing = 10 days
+        },
         "profiles": {
             "Swing": {  # Override the Swing profile
                 "ma": 7,          # ↑ Increased moving average window from 5 to smooth more
@@ -172,6 +183,9 @@ CONFIG = {
     },
     
     "user3": {
+        "timeframe_map": {
+            "daily": {"Daily": 1},   # daily timeframe = 1 day
+        },
         "profiles": {
             "Short": {
                 "ma": 3,            # ↑ Slightly longer MA than default 2 to reduce noise
@@ -189,9 +203,9 @@ CONFIG = {
             }
         },
            "phases": {
-                "phase1": {"topN": 10},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
-                "phase2": {"topN": 5},  # top N for phase2
-                "phase3": {"topN": 2},   # top N for phase3
+                "phase1": {"topN": 20},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+                "phase2": {"topN": 10},  # top N for phase2
+                "phase3": {"topN": 3},   # top N for phase3
         },
         "candle_params": {
             "hammer_base": 0.18,    # ↑ More sensitive to Hammer candles than default 0.15

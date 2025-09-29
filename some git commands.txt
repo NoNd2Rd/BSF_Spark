@@ -105,3 +105,25 @@ remote: Resolving deltas: 100% (14/14), completed with 9 local objects.
 To github.com:NoNd2Rd/BSF_Spark.git
    dc86dc8..09132aa  my-feature -> my-feature
 jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ 
+
+
+
+<.bashrc> started
+<.bashrc> continued
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git add .
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git commit -m "write out signal driver"
+[my-feature c5ef50c] write out signal driver
+ 9 files changed, 174 insertions(+), 70 deletions(-)
+ create mode 100644 .ipynb_checkpoints/some git commands-checkpoint.txt
+ create mode 100644 some git commands.txt
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git push origin
+Enumerating objects: 20, done.
+Counting objects: 100% (20/20), done.
+Delta compression using up to 4 threads
+Compressing objects: 100% (12/12), done.
+Writing objects: 100% (12/12), 15.81 KiB | 3.16 MiB/s, done.
+Total 12 (delta 8), reused 0 (delta 0), pack-reused 0
+remote: Resolving deltas: 100% (8/8), completed with 8 local objects.
+To github.com:NoNd2Rd/BSF_Spark.git
+   09132aa..c5ef50c  my-feature -> my-feature
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ 
