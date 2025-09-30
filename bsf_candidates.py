@@ -278,10 +278,7 @@ def phase_2(spark, user, timeframe_dfs_all, top_n_phase2=20):
                     future_df[col_name] = value
 
             all_stage2_predictions.append(future_df)
-    
-    
-    
-    #top_n_phase2 = 25  # number of top candidates per timeframe
+
     # -----------------------------
     # Combine all Stage 2 predictions into a single Pandas DF
     # -----------------------------
@@ -344,12 +341,9 @@ def phase_2(spark, user, timeframe_dfs_all, top_n_phase2=20):
         # Add all scoring metrics
         for metric_name in model_metrics.keys():
             pred_cols.append(f"{model_name}_{metric_name}")
-        
-        
+  
     pred_cols.extend(["MaxPredictedReturn","Phase2_Rank"])
-    
-    
-    
+ 
     for tf, sdf_tf in timeframe_dfs_all.items():
         # Clean historical DF keys
         sdf_tf_clean = (
@@ -438,9 +432,7 @@ def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
         "Swing": 5,
         "Long": 10
     }
-    
 
-    
     # -----------------------------
     # Phase 3: Loop over companies per timeframe
     # -----------------------------
@@ -558,9 +550,7 @@ def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
             df_c["AIC"] = aic
             df_c["MlType"] = mltype
             phase3_results.append(df_c)
-    
-    
-    
+ 
     # -----------------------------
     # Combine all companies/timeframes
     # -----------------------------
@@ -590,9 +580,7 @@ def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
         .withColumn("Phase3_Rank", F.row_number().over(window_tf))
         .filter(F.col("Phase3_Rank") <= top_n_final)
     )
-    
 
-    
     timeframes = [row["TimeFrame"] for row in df_phase3_enriched.select("TimeFrame").distinct().collect()]
     
     # Create a dict of DataFrames filtered by timeframe
@@ -613,9 +601,6 @@ def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
     cols = ["RunTimestamp"] + [c for c in df_phase3_enriched.columns if c != "RunTimestamp"]
     df_phase3_enriched = df_phase3_enriched.select(cols)
     print(f"     ✅ Stage 3 completed: Latest rows per company + top {top_n_final} candidates selected per timeframe")
-
-
-
 
     return df_phase3_enriched, df_topN_companies, phase3_top_dfs, topN_companies_df
 

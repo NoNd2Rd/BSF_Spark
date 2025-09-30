@@ -157,14 +157,7 @@ def load_history(option='full', chunk_size=10000):
         FROM companyfundamental
         WHERE CompanyId IN {company_list}
     """
-    '''
-    pdf_hist = pd.read_sql(hist_query, engine, chunksize=chunk_size)
-    row_count = 0
-    for chunk in pdf_hist:
-        db.write_history(chunk, show_stats=False)
-        row_count += chunk.shape[0]
-    print(f"      ✔️ Company table written to Delta lakehouse with {row_count:,} rows", flush=True)
-    '''
+
     pdf_iterator = pd.read_sql(hist_query, engine, chunksize=chunk_size)
     batch_list = []
     for chunk in tqdm(pdf_iterator, desc="    Processing History chunks"):
@@ -261,15 +254,7 @@ def load_signals(batch_size=1000):
 
     df_all = spark.table("bsf.history_signal_driver").toPandas()
     users = db.get_users(engine)
-
-    '''
-    # moved to user section
-    timeframes_items = (
-        [(timeframe, CONFIG["timeframe_map"].get(timeframe, CONFIG["timeframe_map"]["Daily"]))]
-        if timeframe else CONFIG["timeframe_map"].items()
-    )
-    '''
-     
+  
     
     def process_company(cid, user, tf, tf_window):
         df_company = df_all[df_all["CompanyId"] == cid].copy().sort_values("StockDate")
@@ -322,45 +307,6 @@ def load_signals(batch_size=1000):
 
     print("✅ All signals processed.")
 
-
-def load_candidates_thread():
-    for table in ['final_candidates_enriched', 'final_candidates']:
-        db.clear_hive_table('bsf', table)
-
-    users = db.get_users(engine)
-    for user in users:
-
-        user_start = time.time()  # Track time per user
-        df_last = spark.table("bsf.history_signals_last").filter(F.col("UserId") == user)
-        df_all = spark.table("bsf.history_signals").filter(F.col("UserId") == user)
-        settings =  load_settings(str(user))["phases"]
-        for phase in ["phase1", "phase2", "phase3"]:
-            if phase not in settings:
-                raise ValueError(f"Missing {phase} in user settings")
-    
-        # Extract the topN values for each phase
-        topN_phase1 = settings["phase1"]["topN"]
-        topN_phase2 = settings["phase2"]["topN"]
-        topN_phase3 = settings["phase3"]["topN"]
-        
-        timeframe_dfs_all, timeframe_dfs = phase_1(spark, user, df_all, df_last, topN_phase1)
-        phase2_topN_dfs = phase_2(spark, user, timeframe_dfs_all, topN_phase2)
-        df_phase3_enriched, user, df_topN_companies, phase3_enriched_dict, topN_companies_dict = phase_3(spark, phase2_topN_dfs, topN_phase3 )
-        
-        db.write_candidates(df_phase3_enriched, df_topN_companies)
-        db.create_bsf(engine, user, topN_companies_dict)
-
-
-        print(f"✅ Candidates processed for user {user} in {format_elapsed(time.time() - user_start)}")
-
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        list(tqdm(executor.map(process_user, users), total=len(users), desc="    🔄 Processing users"))
-
-
-import time
-from pyspark.sql import functions as F
-
 def load_candidates():
     for table in ['final_candidates_enriched', 'final_candidates']:
         db.clear_hive_table('bsf', table)
@@ -398,11 +344,6 @@ def load_candidates():
             
 
         print(f"✅ User {user} processed in {format_elapsed(time.time() - user_start)}")
-    
-
-
-
-
 
 def main(mode=None, option="full"):
     db_name = "bsf"
