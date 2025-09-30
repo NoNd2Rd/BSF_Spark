@@ -95,7 +95,7 @@ class DBUtils:
 
 
     
-    def spark_stats(self):
+    def spark_stats(self, verbose: bool=False):
         """
         Print Spark configuration and runtime info using a single SparkConf object.
         """
@@ -120,31 +120,32 @@ class DBUtils:
         print(f"      📌 Max Cores                  : {conf.get('spark.cores.max', 'Not set')}")
         print(f"      📌 Executor Instances         : {conf.get('spark.executor.instances', 'Not set')}")
         print(f"      📌 Executor Cores             : {conf.get('spark.executor.cores', 'Not set')}")
-        print(f"      📌 Task Cous                  : {conf.get('spark.task.cpus', 'Not set')}")
+        print(f"      📌 Task Cpus                  : {conf.get('spark.task.cpus', 'Not set')}")
         print(f"      📌 Executor Memory            : {conf.get('spark.executor.memory', 'Not set')}")
         print(f"      📌 Driver Memory              : {conf.get('spark.driver.memory', 'Not set')}")
-        print(f"      📌 JVM Memory Overhead        : {conf.get('spark.executor.memoryOverhead', 'Not set')}")
-        print(f"      📌 Dynamic Allocation Enabled : {conf.get('spark.dynamicAllocation.enabled', 'Not set')}")
-        print(f"      📌 Default Parallelism        : {conf.get('spark.default.parallelism', 'Not set')}")
-        print(f"      📌 SQL Shuffle Partitions     : {conf.get('spark.sql.shuffle.partitions', 'Not set')}")
-        print(f"      📌 Memory Fraction            : {conf.get('spark.memory.fraction', 'Not set')}")
-        print(f"      📌 Memory StorageFraction     : {conf.get('spark.memory.storageFraction', 'Not set')}")
-        print(f"      📌 SQL Adaptive               : {conf.get('spark.sql.adaptive.enabled', 'Not set')}")
-        print(f"      📌 Shuffle Input Size         : {conf.get('spark.sql.adaptive.shuffle.targetPostShuffleInputSize', 'Not set')}")
-        print(f"      📌 Delta OptimizeWrite        : {conf.get('spark.databricks.delta.optimizeWrite.enabled', 'Not set')}")
-        print(f"      📌 Delta AutoCompact          : {conf.get('spark.databricks.delta.autoCompact.enabled', 'Not set')}")
-        print(f"      📌 SQL Adaptive SkewJoin      : {conf.get('spark.sql.adaptive.skewJoin.enabled', 'Not set')}")
-        print(f"      📌 Scheduler Pool             : {conf.get('spark.scheduler.pool', 'default')}")
-        print(f"      📌 Sql Catalog Implementation : {conf.get('spark.sql.catalogImplementation', 'Not set')}")
-        print(f"      📌 Catalog                    : {conf.get('spark.sql.catalog.spark_catalog', 'Not set')}")
-        print(f"      📌 Sql Warehouse Dir          : {conf.get('spark.sql.warehouse.dir', 'Not set')}")
-        print(f"      📌 Delta Base Path            : {conf.get('spark.delta.basePath', 'Not set')}")
-        print(f"      📌 Filesource Path            : {conf.get('spark.sql.filesource.path', 'Not set')}")
-        print(f"      📌 Nond2rd Path               : {conf.get('spark.nond2rd.path', 'Not set')}")
-        print(f"      📌 Delta Retention Check      : {conf.get('spark.databricks.delta.retentionDurationCheck.enabled', 'false')}")
-        print(f"      📌 Delta LogStore             : {conf.get('spark.databricks.delta.logStore.class', 'Not set')}")
+        if verbose:
+            print(f"      📌 JVM Memory Overhead        : {conf.get('spark.executor.memoryOverhead', 'Not set')}")
+            print(f"      📌 Dynamic Allocation Enabled : {conf.get('spark.dynamicAllocation.enabled', 'Not set')}")
+            print(f"      📌 Default Parallelism        : {conf.get('spark.default.parallelism', 'Not set')}")
+            print(f"      📌 SQL Shuffle Partitions     : {conf.get('spark.sql.shuffle.partitions', 'Not set')}")
+            print(f"      📌 Memory Fraction            : {conf.get('spark.memory.fraction', 'Not set')}")
+            print(f"      📌 Memory StorageFraction     : {conf.get('spark.memory.storageFraction', 'Not set')}")
+            print(f"      📌 SQL Adaptive               : {conf.get('spark.sql.adaptive.enabled', 'Not set')}")
+            print(f"      📌 Shuffle Input Size         : {conf.get('spark.sql.adaptive.shuffle.targetPostShuffleInputSize', 'Not set')}")
+            print(f"      📌 Delta OptimizeWrite        : {conf.get('spark.databricks.delta.optimizeWrite.enabled', 'Not set')}")
+            print(f"      📌 Delta AutoCompact          : {conf.get('spark.databricks.delta.autoCompact.enabled', 'Not set')}")
+            print(f"      📌 SQL Adaptive SkewJoin      : {conf.get('spark.sql.adaptive.skewJoin.enabled', 'Not set')}")
+            print(f"      📌 Scheduler Pool             : {conf.get('spark.scheduler.pool', 'default')}")
+            print(f"      📌 Sql Catalog Implementation : {conf.get('spark.sql.catalogImplementation', 'Not set')}")
+            print(f"      📌 Catalog                    : {conf.get('spark.sql.catalog.spark_catalog', 'Not set')}")
+            print(f"      📌 Sql Warehouse Dir          : {conf.get('spark.sql.warehouse.dir', 'Not set')}")
+            print(f"      📌 Delta Base Path            : {conf.get('spark.delta.basePath', 'Not set')}")
+            print(f"      📌 Filesource Path            : {conf.get('spark.sql.filesource.path', 'Not set')}")
+            print(f"      📌 Nond2rd Path               : {conf.get('spark.nond2rd.path', 'Not set')}")
+            print(f"      📌 Delta Retention Check      : {conf.get('spark.databricks.delta.retentionDurationCheck.enabled', 'false')}")
+            print(f"      📌 Delta LogStore             : {conf.get('spark.databricks.delta.logStore.class', 'Not set')}")
         '''
-                    .config("spark.memory.fraction", .5)
+            .config("spark.memory.fraction", .5)
             .config("spark.memory.storageFraction", .6)
             .config("spark.sql.adaptive.enabled", "true")  
             .config("spark.sql.adaptive.skewJoin.enabled", "true")

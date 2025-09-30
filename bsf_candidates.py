@@ -40,7 +40,7 @@ import tempfile
 from datetime import datetime
 from tqdm import tqdm
 import joblib
-
+from bsf_settings import load_settings
 # -----------------------------
 # Warnings & Settings
 # -----------------------------
@@ -67,7 +67,7 @@ def select_best_model(metrics_dict):
     return best_name, scores
 
 
-def phase_1(spark, user, df_all, df_last,top_n=100):
+def phase_1(spark, user, df_all, df_last, top_n=100):
     # -----------------------------
     # Filter only Buy actions from last-row DF
     # -----------------------------
@@ -91,12 +91,6 @@ def phase_1(spark, user, df_all, df_last,top_n=100):
     # -----------------------------
     # Define ranking window per timeframe
     # -----------------------------
-    '''
-    w_tf = Window.partitionBy("TimeFrame").orderBy(
-        F.desc("ActionConfidence"),
-        F.desc("Return")
-    )
-    '''
     w_tf = Window.partitionBy("TimeFrame").orderBy(
         F.desc("BuyScore")
     )

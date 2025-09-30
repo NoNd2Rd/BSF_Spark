@@ -22,9 +22,9 @@ CONFIG = {
         },
 
         "phases": {
-            "phase1": {"topN": 30},  # top N stocks to select in phase1
-            "phase2": {"topN": 15},  # top N for phase2
-            "phase3": {"topN": 5},   # top N for phase3
+            "phase1": {"topN": 50},  # top N stocks to select in phase1
+            "phase2": {"topN": 20},  # top N for phase2
+            "phase3": {"topN": 10},   # top N for phase3
         },
 
         "profiles": {
@@ -163,9 +163,9 @@ CONFIG = {
             }
         },
         "phases": {
-            "phase1": {"topN": 10},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
-            "phase2": {"topN": 5},  # top N for phase2
-            "phase3": {"topN": 2},   # top N for phase3
+            "phase1": {"topN": 20},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+            "phase2": {"topN": 10},  # top N for phase2
+            "phase3": {"topN": 3},   # top N for phase3
         },
         "candle_params": {
             "doji_thresh": 0.09   # ↑ Increased Doji detection threshold from 0.08 to be more lenient
@@ -184,7 +184,7 @@ CONFIG = {
     
     "user3": {
         "timeframe_map": {
-            "daily": {"Daily": 1},   # daily timeframe = 1 day
+            "Daily": 1,   # daily timeframe = 1 day
         },
         "profiles": {
             "Short": {
@@ -203,9 +203,9 @@ CONFIG = {
             }
         },
            "phases": {
-                "phase1": {"topN": 20},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
-                "phase2": {"topN": 10},  # top N for phase2
-                "phase3": {"topN": 3},   # top N for phase3
+                "phase1": {"topN": 15},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+                "phase2": {"topN": 5},  # top N for phase2
+                "phase3": {"topN": 2},   # top N for phase3
         },
         "candle_params": {
             "hammer_base": 0.18,    # ↑ More sensitive to Hammer candles than default 0.15
