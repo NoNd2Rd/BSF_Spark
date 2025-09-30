@@ -1,0 +1,129 @@
+<.bashrc> started
+<.bashrc> continued
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git commit -m "Update analysis in notebook"
+On branch my-feature
+Your branch is up to date with 'origin/my-feature'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+        modified:   .ipynb_checkpoints/bsf_candlesticks-checkpoint.py
+        modified:   __pycache__/bsf_candlesticks.cpython-39.pyc
+        modified:   __pycache__/bsf_config.cpython-39.pyc
+        modified:   __pycache__/bsf_dbutilities.cpython-39.pyc
+        modified:   __pycache__/bsf_env.cpython-39.pyc
+        modified:   __pycache__/bsf_settings.cpython-39.pyc
+        modified:   bsf_candlesticks.py
+        modified:   bsf_config.py
+        modified:   bsf_dbutilities.py
+        modified:   bsf_env.py
+        modified:   bsf_load_lakehouse.py
+        modified:   old/bsf_candlesticks-pre spark again.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+        __pycache__/bsf_candlesticks_grok.cpython-39.pyc
+        old/.ipynb_checkpoints/bsf_candlesticks-Copy1-checkpoint.py
+        old/.ipynb_checkpoints/bsf_candlesticks-checkpoint.py
+        old/.ipynb_checkpoints/bsf_candlesticks-pre spark again-checkpoint.py
+        old/.ipynb_checkpoints/bsf_candlesticks-spark-checkpoint.py
+        old/.ipynb_checkpoints/bsf_candlesticks_pandas_1-checkpoint.py
+        old/.ipynb_checkpoints/bsf_dbutilities-Copy1-checkpoint.py
+        old/.ipynb_checkpoints/grok attemp partial-checkpoint.py
+        old/bsf_candlesticks-spark.py
+        old/bsf_candlesticks.py
+        old/bsf_candlesticks_grok-Copy1.py
+        old/bsf_candlesticks_pandas_1.py
+        old/grok attemp partial.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git status 
+On branch my-feature
+Your branch is up to date with 'origin/my-feature'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+        modified:   .ipynb_checkpoints/bsf_candlesticks-checkpoint.py
+        modified:   __pycache__/bsf_candlesticks.cpython-39.pyc
+        modified:   __pycache__/bsf_config.cpython-39.pyc
+        modified:   __pycache__/bsf_dbutilities.cpython-39.pyc
+        modified:   __pycache__/bsf_env.cpython-39.pyc
+        modified:   __pycache__/bsf_settings.cpython-39.pyc
+        modified:   bsf_candlesticks.py
+        modified:   bsf_config.py
+        modified:   bsf_dbutilities.py
+        modified:   bsf_env.py
+        modified:   bsf_load_lakehouse.py
+        modified:   old/bsf_candlesticks-pre spark again.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+        __pycache__/bsf_candlesticks_grok.cpython-39.pyc
+        old/.ipynb_checkpoints/bsf_candlesticks-Copy1-checkpoint.py
+        old/.ipynb_checkpoints/bsf_candlesticks-checkpoint.py
+        old/.ipynb_checkpoints/bsf_candlesticks-pre spark again-checkpoint.py
+        old/.ipynb_checkpoints/bsf_candlesticks-spark-checkpoint.py
+        old/.ipynb_checkpoints/bsf_candlesticks_pandas_1-checkpoint.py
+        old/.ipynb_checkpoints/bsf_dbutilities-Copy1-checkpoint.py
+        old/.ipynb_checkpoints/grok attemp partial-checkpoint.py
+        old/bsf_candlesticks-spark.py
+        old/bsf_candlesticks.py
+        old/bsf_candlesticks_grok-Copy1.py
+        old/bsf_candlesticks_pandas_1.py
+        old/grok attemp partial.py
+
+no changes added to commit (use "git add" and/or "git commit -a")
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git add .
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git commit -m "Checkpoint notebook progress"
+[my-feature 09132aa] Checkpoint notebook progress
+ 25 files changed, 12584 insertions(+), 2660 deletions(-)
+ rewrite .ipynb_checkpoints/bsf_candlesticks-checkpoint.py (100%)
+ rewrite __pycache__/bsf_candlesticks.cpython-39.pyc (97%)
+ create mode 100644 __pycache__/bsf_candlesticks_grok.cpython-39.pyc
+ rewrite bsf_candlesticks.py (90%)
+ create mode 100644 old/.ipynb_checkpoints/bsf_candlesticks-Copy1-checkpoint.py
+ copy {.ipynb_checkpoints => old/.ipynb_checkpoints}/bsf_candlesticks-checkpoint.py (100%)
+ copy bsf_candlesticks.py => old/.ipynb_checkpoints/bsf_candlesticks-pre spark again-checkpoint.py (50%)
+ create mode 100644 old/.ipynb_checkpoints/bsf_candlesticks-spark-checkpoint.py
+ create mode 100644 old/.ipynb_checkpoints/bsf_candlesticks_pandas_1-checkpoint.py
+ create mode 100644 old/.ipynb_checkpoints/bsf_dbutilities-Copy1-checkpoint.py
+ create mode 100644 old/.ipynb_checkpoints/grok attemp partial-checkpoint.py
+ create mode 100644 old/bsf_candlesticks-spark.py
+ create mode 100644 old/bsf_candlesticks.py
+ create mode 100644 old/bsf_candlesticks_grok-Copy1.py
+ create mode 100644 old/bsf_candlesticks_pandas_1.py
+ create mode 100644 old/grok attemp partial.py
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git push origin
+Enumerating objects: 34, done.
+Counting objects: 100% (34/34), done.
+Delta compression using up to 4 threads
+Compressing objects: 100% (22/22), done.
+Writing objects: 100% (22/22), 62.90 KiB | 2.42 MiB/s, done.
+Total 22 (delta 14), reused 0 (delta 0), pack-reused 0
+remote: Resolving deltas: 100% (14/14), completed with 9 local objects.
+To github.com:NoNd2Rd/BSF_Spark.git
+   dc86dc8..09132aa  my-feature -> my-feature
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ 
+
+
+
+<.bashrc> started
+<.bashrc> continued
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git add .
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git commit -m "write out signal driver"
+[my-feature c5ef50c] write out signal driver
+ 9 files changed, 174 insertions(+), 70 deletions(-)
+ create mode 100644 .ipynb_checkpoints/some git commands-checkpoint.txt
+ create mode 100644 some git commands.txt
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ git push origin
+Enumerating objects: 20, done.
+Counting objects: 100% (20/20), done.
+Delta compression using up to 4 threads
+Compressing objects: 100% (12/12), done.
+Writing objects: 100% (12/12), 15.81 KiB | 3.16 MiB/s, done.
+Total 12 (delta 8), reused 0 (delta 0), pack-reused 0
+remote: Resolving deltas: 100% (8/8), completed with 8 local objects.
+To github.com:NoNd2Rd/BSF_Spark.git
+   09132aa..c5ef50c  my-feature -> my-feature
+jupyter@nond2rd-d19:/srv/jupyter/bsf_analysis$ 

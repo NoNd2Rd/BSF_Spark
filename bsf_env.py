@@ -85,10 +85,18 @@ def init_spark(app_name: str = None,
             .config("spark.executor.instances", 1)        # single executor (best for 1 node)
             .config("spark.executor.cores", 4)            # give executor all 4 cores
             .config("spark.task.cpus", 1)
-            .config("spark.executor.memory", "4096m")     # 4 GB executor memory
-            .config("spark.executor.memoryOverhead", "1024m")  # 1 GB overhead
-            .config("spark.driver.memory", "2048m")       # 2 GB driver memory
+            .config("spark.executor.memory", "3072m")     # 4 GB executor memory
+            .config("spark.executor.memoryOverhead", "512m")  # 1 GB overhead
+            .config("spark.driver.memory", "1536m")       # 2 GB driver memory
             .config("spark.sql.shuffle.partitions", 8)    # 2× cores
+            .config("spark.sql.adaptive.shuffle.targetPostShuffleInputSize", "64MB") # no more need to set partions
+            .config("spark.databricks.delta.optimizeWrite.enabled", "true")
+            .config("spark.databricks.delta.autoCompact.enabled", "true")
+
+            .config("spark.memory.fraction", .5)
+            .config("spark.memory.storageFraction", .6)
+            .config("spark.sql.adaptive.enabled", "true")  
+            .config("spark.sql.adaptive.skewJoin.enabled", "true")
             .config("spark.default.parallelism", 8)       # match shuffle partitions
         )
     elif process_option == 'tall':
@@ -103,7 +111,28 @@ def init_spark(app_name: str = None,
             .config("spark.driver.memory", "2048m")
             .config("spark.executor.memoryOverhead", "512m")  # optional, JVM overhead
             .config("spark.sql.shuffle.partitions", 12) # slightly more partitions for parallelism
+            .config("spark.sql.adaptive.shuffle.targetPostShuffleInputSize", "64MB") # no more need to set partions
+            .config("spark.databricks.delta.optimizeWrite.enabled", "true")
+            .config("spark.databricks.delta.autoCompact.enabled", "true")
             .config("spark.default.parallelism", 12)
+            .config("spark.scheduler.pool", "highPriority")
+        )
+    elif process_option == 'manual':
+        builder = (
+            builder
+            .master("local[1]") 
+            .config("spark.cores.max", 1)                # max total cores used
+            .config("spark.executor.instances", 1)       # only 1 executor
+            .config("spark.executor.cores", 1)           # 1 core per executor
+            .config("spark.task.cpus", 1)               # 1 CPU per task
+            .config("spark.executor.memory", "512m")     # executor memory 512 MB
+            .config("spark.driver.memory", "512m")       # driver memory 512 MB
+            .config("spark.executor.memoryOverhead", "128m")  # small JVM overhead
+            .config("spark.sql.shuffle.partitions", 1)   # only 1 shuffle partition
+            .config("spark.sql.adaptive.shuffle.targetPostShuffleInputSize", "64MB")
+            .config("spark.databricks.delta.optimizeWrite.enabled", "true")
+            .config("spark.databricks.delta.autoCompact.enabled", "true")
+            .config("spark.default.parallelism", 1)      # default parallelism = 1
             .config("spark.scheduler.pool", "highPriority")
         )
     else:

@@ -40,7 +40,7 @@ import tempfile
 from datetime import datetime
 from tqdm import tqdm
 import joblib
-
+from bsf_settings import load_settings
 # -----------------------------
 # Warnings & Settings
 # -----------------------------
@@ -67,7 +67,7 @@ def select_best_model(metrics_dict):
     return best_name, scores
 
 
-def phase_1(spark, df_all, df_last,top_n=100):
+def phase_1(spark, user, df_all, df_last, top_n=100):
     # -----------------------------
     # Filter only Buy actions from last-row DF
     # -----------------------------
@@ -82,10 +82,7 @@ def phase_1(spark, df_all, df_last,top_n=100):
         F.col("BullishStrengthHybrid") * 0.2 +
         F.col("UpTrend_Return").cast("integer") * 0.1
     )
-    '''
-    +
-        F.col("UpTrend_Return").cast("integer") * 0.1
-        '''
+
     df_last_buys = df_last_buys.withColumn(
         "BuyScore",
         F.col("BuyScore") * F.when(F.col("Volatility") > 0.05, 0.8).otherwise(1.0)
@@ -94,12 +91,6 @@ def phase_1(spark, df_all, df_last,top_n=100):
     # -----------------------------
     # Define ranking window per timeframe
     # -----------------------------
-    '''
-    w_tf = Window.partitionBy("TimeFrame").orderBy(
-        F.desc("ActionConfidence"),
-        F.desc("Return")
-    )
-    '''
     w_tf = Window.partitionBy("TimeFrame").orderBy(
         F.desc("BuyScore")
     )
@@ -139,8 +130,9 @@ def phase_1(spark, df_all, df_last,top_n=100):
     # -----------------------------
     # List of timeframes
     # -----------------------------
-    timeframes = ["Short", "Swing", "Long", "Daily"]
-    
+    #timeframes = ["Short", "Swing", "Long", "Daily"]
+    timeframes = list(load_settings(str(user))["timeframe_map"].keys()) # → ["Daily", "Short", "Swing", "Long"]
+
     # -----------------------------
     # Dictionaries to store per-timeframe DataFrames
     # -----------------------------
@@ -161,7 +153,7 @@ def phase_1(spark, df_all, df_last,top_n=100):
     print(f"     ✅ Stage 1 completed: Top {top_n} candidates selected per timeframe")
     return timeframe_dfs_all, timeframe_dfs
 
-def phase_2(spark, timeframe_dfs_all, top_n_phase2=20):
+def phase_2(spark, user, timeframe_dfs_all, top_n_phase2=20):
     
     # -----------------------------
     # Parameters
@@ -284,17 +276,7 @@ def phase_2(spark, timeframe_dfs_all, top_n_phase2=20):
                     # Create column names like "XGBoost_RMSE", "Linear_MAPE"
                     col_name = f"{model_name}_{metric_name}"
                     future_df[col_name] = value
-            '''
-            # Raise error if best_name or metrics are missing/null/blank
-            if (not best_name) or future_df[["BestModel_RMSE","BestModel_MAPE","BestModel_DirAcc"]].isnull().any().any():
-                raise ValueError(
-                    f"Missing or null metrics for company {cid}, timeframe {tf}, best_name={best_name} | "
-                    f"Metrics: {metrics}"
-                )
-            if future_df.empty or len(good_features) == 0:
-                print(f"Skipping {cid}-{tf} | future rows: {len(future_df)}, good features: {len(good_features)}")
-                breakpoint()  # or raise ValueError to stop
-            '''
+
             all_stage2_predictions.append(future_df)
     
     
@@ -341,15 +323,6 @@ def phase_2(spark, timeframe_dfs_all, top_n_phase2=20):
    
     phase2_top_dfs = {}
     
-    # Columns from Stage2 DF we care about
-    '''
-    pred_cols = [
-        "Pred_Linear", "Pred_Lasso", "Pred_Ridge", "Pred_XGBoost",
-        "Pred_Sklearn", "PredictedReturn_Sklearn",
-        "BestModel", "BestModel_RMSE", "BestModel_MAPE",
-        "BestModel_DirAcc", "Phase2_Rank"
-    ]
-    '''
     
     # Start with columns that are fixed
     pred_cols = ["BestModel"]
@@ -447,7 +420,7 @@ def infer_season_length(ts, max_lag=30, threshold=0.3):
     m = int(peaks[0])
     return m
 
-def phase_3(spark, phase2_topN_dfs, top_n_final=10):
+def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
     
     # -----------------------------
     # Parameters

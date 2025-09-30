@@ -17,7 +17,6 @@ from pyspark.sql import Row
 
 from delta.tables import DeltaTable
 from sqlalchemy import text
-from pyspark.sql.window import Window
 
 
 
@@ -29,8 +28,9 @@ class DBUtils:
     def get_users(self, engine):
         """Return a list of user IDs from aspnetuser."""
         pdf_users = pd.read_sql("SELECT UserId FROM aspnetuser where MaxPortfolioDlrs>200", engine)
-        #user_keys = pdf_users["UserId"].tolist()
-        return pdf_users["UserId"].tolist()
+        # Prefix each UserId with 'user'
+        user_keys = [pdf_users["UserId"].tolist()]
+        return user_keys
 
 
     def get_table_stats(self, table_name: str) -> dict:
@@ -66,36 +66,30 @@ class DBUtils:
             return {"rows": num_rows, "size_mb": size_mb, "location": table_location}
 
     
-    from pyspark.sql.utils import AnalysisException
-    import shutil, os
-    
     def clear_hive_table(self, db: str, table: str):
         fqtn = f"{db}.{table}"
-        print(f"    🧹 Dropping table: {fqtn}")
+        print(f"     🧹 Dropping table: {fqtn}")
     
         try:
-            location = (
-                self.spark.sql(f"DESCRIBE DETAIL {fqtn}")
-                .select("location")
-                .first()
-                .location
-            )
+            # Fetch table details before dropping
+            details = self.spark.sql(f"DESCRIBE EXTENDED {fqtn}")
+            desc = {row.col_name: row.data_type for row in details.collect()}
+            location = desc.get("Location", "").replace("file:", "")
         except AnalysisException:
             location = None
     
         # Drop the Hive table (catalog + files if managed)
         self.spark.sql(f"DROP TABLE IF EXISTS {fqtn}")
     
-        # As a safeguard: manually delete location if it still exists
+        # As a safeguard: if location still exists, remove manually
         if location and os.path.exists(location):
             shutil.rmtree(location, ignore_errors=True)
             print(f"    🗑️ Removed leftover files at {location}")
         else:
-            print(f"    🗑️ Table {fqtn} dropped (no leftover files found)")
-
+            print(f"    ✔️ Table {fqtn} dropped (no leftover files found)")
 
     
-    def spark_stats(self, verbose: bool=False):
+    def spark_stats(self):
         """
         Print Spark configuration and runtime info using a single SparkConf object.
         """
@@ -120,35 +114,23 @@ class DBUtils:
         print(f"      📌 Max Cores                  : {conf.get('spark.cores.max', 'Not set')}")
         print(f"      📌 Executor Instances         : {conf.get('spark.executor.instances', 'Not set')}")
         print(f"      📌 Executor Cores             : {conf.get('spark.executor.cores', 'Not set')}")
-        print(f"      📌 Task Cpus                  : {conf.get('spark.task.cpus', 'Not set')}")
+        print(f"      📌 Task Cous                  : {conf.get('spark.task.cpus', 'Not set')}")
         print(f"      📌 Executor Memory            : {conf.get('spark.executor.memory', 'Not set')}")
         print(f"      📌 Driver Memory              : {conf.get('spark.driver.memory', 'Not set')}")
-        if verbose:
-            print(f"      📌 JVM Memory Overhead        : {conf.get('spark.executor.memoryOverhead', 'Not set')}")
-            print(f"      📌 Dynamic Allocation Enabled : {conf.get('spark.dynamicAllocation.enabled', 'Not set')}")
-            print(f"      📌 Default Parallelism        : {conf.get('spark.default.parallelism', 'Not set')}")
-            print(f"      📌 SQL Shuffle Partitions     : {conf.get('spark.sql.shuffle.partitions', 'Not set')}")
-            print(f"      📌 Memory Fraction            : {conf.get('spark.memory.fraction', 'Not set')}")
-            print(f"      📌 Memory StorageFraction     : {conf.get('spark.memory.storageFraction', 'Not set')}")
-            print(f"      📌 SQL Adaptive               : {conf.get('spark.sql.adaptive.enabled', 'Not set')}")
-            print(f"      📌 Shuffle Input Size         : {conf.get('spark.sql.adaptive.shuffle.targetPostShuffleInputSize', 'Not set')}")
-            print(f"      📌 Delta OptimizeWrite        : {conf.get('spark.databricks.delta.optimizeWrite.enabled', 'Not set')}")
-            print(f"      📌 Delta AutoCompact          : {conf.get('spark.databricks.delta.autoCompact.enabled', 'Not set')}")
-            print(f"      📌 SQL Adaptive SkewJoin      : {conf.get('spark.sql.adaptive.skewJoin.enabled', 'Not set')}")
-            print(f"      📌 Scheduler Pool             : {conf.get('spark.scheduler.pool', 'default')}")
-            print(f"      📌 Sql Catalog Implementation : {conf.get('spark.sql.catalogImplementation', 'Not set')}")
-            print(f"      📌 Catalog                    : {conf.get('spark.sql.catalog.spark_catalog', 'Not set')}")
-            print(f"      📌 Sql Warehouse Dir          : {conf.get('spark.sql.warehouse.dir', 'Not set')}")
-            print(f"      📌 Delta Base Path            : {conf.get('spark.delta.basePath', 'Not set')}")
-            print(f"      📌 Filesource Path            : {conf.get('spark.sql.filesource.path', 'Not set')}")
-            print(f"      📌 Nond2rd Path               : {conf.get('spark.nond2rd.path', 'Not set')}")
-            print(f"      📌 Delta Retention Check      : {conf.get('spark.databricks.delta.retentionDurationCheck.enabled', 'false')}")
-            print(f"      📌 Delta LogStore             : {conf.get('spark.databricks.delta.logStore.class', 'Not set')}")
+        print(f"      📌 JVM Memory Overhead        : {conf.get('spark.executor.memoryOverhead', 'Not set')}")
+        print(f"      📌 Dynamic Allocation Enabled : {conf.get('spark.dynamicAllocation.enabled', 'Not set')}")
+        print(f"      📌 Default Parallelism        : {conf.get('spark.default.parallelism', 'Not set')}")
+        print(f"      📌 SQL Shuffle Partitions     : {conf.get('spark.sql.shuffle.partitions', 'Not set')}")
+        print(f"      📌 Scheduler Pool             : {conf.get('spark.scheduler.pool', 'default')}")
+        print(f"      📌 Sql Catalog Implementation : {conf.get('spark.sql.catalogImplementation', 'Not set')}")
+        print(f"      📌 Catalog                    : {conf.get('spark.sql.catalog.spark_catalog', 'Not set')}")
+        print(f"      📌 Sql Warehouse Dir          : {conf.get('spark.sql.warehouse.dir', 'Not set')}")
+        print(f"      📌 Delta Base Path            : {conf.get('spark.delta.basePath', 'Not set')}")
+        print(f"      📌 Filesource Path            : {conf.get('spark.sql.filesource.path', 'Not set')}")
+        print(f"      📌 Nond2rd Path               : {conf.get('spark.nond2rd.path', 'Not set')}")
+        #print(f"      📌 spark.databricks.delta.retentionDurationCheck.enabled : {conf.get('spark.databricks.delta.retentionDurationCheck.enabled', 'false')}")
+        #print(f"      📌 spark.databricks.delta.logStore.class                 : {conf.get('spark.databricks.delta.logStore.class', 'Not set')}")
         '''
-            .config("spark.memory.fraction", .5)
-            .config("spark.memory.storageFraction", .6)
-            .config("spark.sql.adaptive.enabled", "true")  
-            .config("spark.sql.adaptive.skewJoin.enabled", "true")
         # ----------------------------
         # Active executors
         # ----------------------------
@@ -165,7 +147,7 @@ class DBUtils:
 
         
     def db_stats(self, db_name: str):
-        print(f"    📋 Stats Hive Database: {db_name}")
+        print(f"     📋 Stats Hive Database: {db_name}")
 
         '''
         # Show all databases in Hive - Using Spark SQL
@@ -179,71 +161,15 @@ class DBUtils:
         for db in db_list:
             if db.name == db_name:
                 db_found = True
-                print(f"    ✅ Database Name: {db.name}, Location: {db.locationUri}")
+                print(f"     ✅ Database Name: {db.name}, Location: {db.locationUri}")
                 
         if not db_found:
-            print(f"    ❗ Database Name: {db_name} was not found")
+            print(f"     ❗ Database Name: {db_name} was not found")
             
 
-        
-    def merge_signal_table(
-        self, sdf, table_name, merge_keys, 
-        timeframe_col="TimeFrame",
-        overwrite_partition=False
-        ):
-        """
-        Merge a Spark DataFrame into a Delta table, or overwrite partitions.
-        Simplified for single-node Spark.
-        """
-        #sdf.printSchema()
-        if sdf.rdd.isEmpty():
-            print(f"⚠️ No data to write for table {table_name}. Skipping.")
-            return
-    
-        # Validate merge keys
-        missing_keys = [k for k in merge_keys if k not in sdf.columns]
-        if missing_keys:
-            raise ValueError(f"Merge keys missing in DataFrame: {missing_keys}")
-        from pyspark.sql import functions as F
-        from pyspark.sql.types import IntegerType, StringType
-        
-        sdf = sdf.withColumn(timeframe_col, F.col(timeframe_col).cast(StringType()))    
-        num_rows = sdf.count()
-        print(f"📤 Writing {num_rows:,} rows to Delta table: {table_name}")
-    
-        if self.spark.catalog.tableExists(table_name):
-            if overwrite_partition:
-                # Overwrite partitions (safe on single-node)
-                partitions = sdf.select("UserId", timeframe_col).distinct().collect()
-                replace_conditions = " OR ".join(
-                    [f"(UserId = '{row['UserId']}' AND {timeframe_col} = '{row[timeframe_col]}')" 
-                     for row in partitions]
-                )
-                sdf.write.format("delta") \
-                   .mode("overwrite") \
-                   .option("replaceWhere", replace_conditions) \
-                   .saveAsTable(table_name)
-            else:
-                # Merge (upsert)
-                target = DeltaTable.forName(self.spark, table_name)
-                full_merge_keys = ["UserId", timeframe_col] + merge_keys
-                cond = " AND ".join([f"t.{k} = s.{k}" for k in full_merge_keys])
-                target.alias("t") \
-                      .merge(sdf.alias("s"), cond) \
-                      .whenMatchedUpdateAll() \
-                      .whenNotMatchedInsertAll() \
-                      .execute()
-        else:
-            # First load
-            sdf.write.format("delta") \
-                .mode("overwrite") \
-                .partitionBy("UserId", timeframe_col) \
-                .saveAsTable(table_name)
-    
-        print(f"✅ Finished writing Delta table: {table_name}")
-       
+   
 
-    def merge_signal_table_old(
+    def merge_signal_table(
         self, df, table_name, merge_keys, 
         company_col="CompanyId", timeframe_col="TimeFrame",
         target_partition_mb=64, overwrite_partition=False
@@ -329,89 +255,60 @@ class DBUtils:
                     .saveAsTable(table_name)
             )
 
-    def write_delta_merge(self, sdf, table_name, merge_keys, partition_cols=None):
-        """
-        Always merge sdf into Delta table using merge keys.
-        Supports optional partitioning for table creation.
-        """
-        if DeltaTable.isDeltaTable(self.spark, table_name):
-            # Table exists → merge normally
-            target = DeltaTable.forName(self.spark, table_name)
-            cond = " AND ".join([f"t.{k} = s.{k}" for k in merge_keys])
-            target.alias("t") \
-                  .merge(sdf.alias("s"), cond) \
-                  .whenMatchedUpdateAll() \
-                  .whenNotMatchedInsertAll() \
-                  .execute()
-        else:
-            # Table does not exist yet → first write with partitioning
-            writer = sdf.write.format("delta").mode("append")
-            if partition_cols:
-                writer = writer.partitionBy(*partition_cols)
-            writer.saveAsTable(table_name)   
-
-            
-    def write_history(self, pdf, show_stats: bool = False):
+    
+    def write_history(self, pdf_chunk, overwrite_table: bool = False, show_stats: bool = False):
         # Convert to Spark
-        sdf = self.spark.createDataFrame(pdf)
+        sdf_chunk = self.spark.createDataFrame(pdf_chunk.copy())
     
         if show_stats:
             try:
-                est_bytes = sdf.rdd.map(lambda x: len(str(x))).sum()
+                est_bytes = sdf_chunk.rdd.map(lambda x: len(str(x))).sum()
                 est_mib = round(est_bytes / (1024 * 1024), 2)
                 print(f"        🧠 Estimated memory footprint: {est_mib} MiB")
             except Exception as e:
                 print(f"        ❗ Memory estimation failed: {e}")
-                
-        merge_keys = ["CompanyId", "StockDate"]
-        table = "bsf.companystockhistory"
-        self.write_delta_merge(sdf, table, merge_keys)
-                
+    
+        # -------------------------------
+        # Write main history table
+        # -------------------------------
+        #sdf_chunk.write.format("delta") \
+            #.saveAsTable("bsf.companystockhistory") \
+            #.partitionBy("CompanyId") \  
+            #.mode("overwrite" if overwrite_table else "append") 
+        sdf_chunk.write.format("delta") \
+            .mode("overwrite" if overwrite_table else "append") \
+            .saveAsTable("bsf.companystockhistory")
+                 
         # -------------------------------
         # Write watermark table
-        # -------------------------------  
-
-        watermark_update_df = sdf.groupBy("CompanyId") \
-                               .agg(F.max("StockDate").alias("LastLoadedDate"))
-        if show_stats:
-            try:
-                est_bytes = watermark_update_df.rdd.map(lambda x: len(str(x))).sum()
-                est_mib = round(est_bytes / (1024 * 1024), 2)
-                print(f"        🧠 Estimated memory footprint: {est_mib} MiB")
-            except Exception as e:
-                print(f"        ❗ Memory estimation failed: {e}")
-                
-        watermark_update_df = watermark_update_df.coalesce(1)
-        merge_keys = ["CompanyId"]
-        table = "bsf.companystockhistory_watermark"
-        self.write_delta_merge(watermark_update_df, table, merge_keys)
-
-    
-    def write_fundamental(self, pdf, show_stats: bool = False):
-        # Convert to Spark
-        sdf = self.spark.createDataFrame(pdf)
-    
-        if show_stats:
-            try:
-                est_bytes = sdf.rdd.map(lambda x: len(str(x))).sum()
-                est_mib = round(est_bytes / (1024 * 1024), 2)
-                print(f"        🧠 Estimated memory footprint: {est_mib} MiB")
-            except Exception as e:
-                print(f"        ❗ Memory estimation failed: {e}")
-    
-        # -------------------------------
-        # Write main funndamental table
-        # -------------------------------
-        merge_keys = ["CompanyId", "StockDate"]
-        table = "bsf.companyfundamental"
+        # -------------------------------   
+        watermark_update_df = self.spark.createDataFrame(
+            pdf_chunk.groupby("CompanyId")["StockDate"].max().reset_index()
+        ).withColumnRenamed("StockDate", "LastLoadedDate")
         
-        self.write_delta_merge(sdf, table, merge_keys)
+        watermark_table = "bsf.companystockhistory_watermark"
+        
+        # Check if watermark table exists
+        if self.spark.catalog.tableExists(watermark_table):
+            existing_wm = self.spark.table(watermark_table)
+            merged_wm = existing_wm.union(watermark_update_df)
+        else:
+            merged_wm = watermark_update_df
+        
+        # Always collapse to max per CompanyId
+        merged_wm = merged_wm.groupBy("CompanyId") \
+            .agg(F.max("LastLoadedDate").alias("LastLoadedDate"))
+        
+        # Overwrite watermark table
+        merged_wm.write.format("delta").mode("overwrite").saveAsTable(watermark_table)
 
-    def write_signal_driver(self, sdf, show_stats: bool = False):
+    def write_fundamental(self, pdf_chunk, overwrite_table: bool = False, show_stats: bool = False):
+        # Convert to Spark
+        sdf_chunk = self.spark.createDataFrame(pdf_chunk.copy())
     
         if show_stats:
             try:
-                est_bytes = sdf.rdd.map(lambda x: len(str(x))).sum()
+                est_bytes = sdf_chunk.rdd.map(lambda x: len(str(x))).sum()
                 est_mib = round(est_bytes / (1024 * 1024), 2)
                 print(f"        🧠 Estimated memory footprint: {est_mib} MiB")
             except Exception as e:
@@ -420,11 +317,11 @@ class DBUtils:
         # -------------------------------
         # Write main funndamental table
         # -------------------------------
-        merge_keys = None
-        table = "bsf.history_signal_driver"
-        self.write_delta_merge(sdf, table, merge_keys)
-    
-    def write_company(self, pdf, show_stats: bool = False):
+        sdf_chunk.write.format("delta") \
+            .mode("overwrite" if overwrite_table else "append") \
+            .saveAsTable("bsf.companyfundamental")
+                 
+    def write_company(self, pdf):
         schema = StructType([
             StructField("CompanyId", IntegerType(), True),
             StructField("TradingSymbol", StringType(), True),
@@ -455,85 +352,25 @@ class DBUtils:
             StructField("ModifiedByUserId", IntegerType(), True),
             StructField("SoftDelete", IntegerType(), True)
         ])
+     
 
+    
         # ----------------------------
         # Convert to Spark DataFrame
         # ----------------------------
-        sdf = self.spark.createDataFrame(pdf, schema=schema)
-        sdf = sdf.coalesce(1)
-        
-        if show_stats:
-            try:
-                est_bytes = sdf.rdd.map(lambda x: len(str(x))).sum()
-                est_mib = round(est_bytes / (1024 * 1024), 2)
-                print(f"        🧠 Estimated memory footprint: {est_mib} MiB")
-            except Exception as e:
-                print(f"        ❗ Memory estimation failed: {e}")
-    
-
+        sdf_company = self.spark.createDataFrame(pdf, schema=schema)
         
         # ----------------------------
         # Write to Delta managed table in lakehouse
         # ----------------------------
-        print(f"        ⚡️ Start writing delta tables for company.")
-        
-        # Force small number of partitions (1 or match your cores)
-        #sdf = sdf.coalesce(1)   # <- best if you want a single file
-        # or sdf = sdf.repartition(4)  # if you want 4 files max
+        print(f"      ⚡️ Start writing delta tables for company.")
+        sdf_company.write.format("delta") \
+            .mode("overwrite") \
+            .partitionBy("ListingExchange") \
+            .saveAsTable("bsf.company")
+    
 
-        merge_keys = ["CompanyId"]
-        table = "bsf.company"
-        
-        self.write_delta_merge(sdf, table, merge_keys)    
          
-    
-    def write_signals(self, df=None):
-        """
-        Write signals directly from a Spark DataFrame to Delta tables.
-        Accepts sdf: Spark DataFrame with all necessary columns.
-        """
-        sdf = self.spark.createDataFrame(df)
-        
-        from pyspark.sql.types import IntegerType
-        from pyspark.sql import functions as F
-        
-        # Cast key columns to Integer
-        sdf = sdf.withColumn("UserId", F.col("UserId").cast(IntegerType()))
-        sdf = sdf.withColumn("CompanyId", F.col("CompanyId").cast(IntegerType()))
-        sdf = sdf.withColumn("TimeFrame", F.col("TimeFrame").cast("string"))
-        # Columns to keep
-        keep_cols = [
-            "UserId","CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
-            "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp", "MomentumDown",
-            "ConfirmedUpTrend", "ConfirmedDownTrend", "Volatility", "LowVolatility", "HighVolatility", "SignalStrength",
-            "SignalStrengthHybrid", "ActionConfidence",
-            "BullishStrengthHybrid", "BearishStrengthHybrid", "SignalDuration",
-            "PatternAction", "CandleAction","UpTrend_Return",
-            "CandidateAction", "Action", "TomorrowAction", "TimeFrame"
-        ]
-    
-        # Filter columns
-        sdf = sdf.select(*[c for c in keep_cols if c in sdf.columns])
-    
-        # Latest row per company
-        latest_sdf = sdf.withColumn("row_num", F.row_number().over(
-            Window.partitionBy("CompanyId").orderBy(F.desc("StockDate"))
-        )).filter(F.col("row_num") == 1).drop("row_num")
-    
-        # Merge main table
-        #self.merge_signal_table(sdf, "bsf.history_signals", merge_keys=["UserId", "CompanyId", "StockDate", "TimeFrame"])
-        merge_keys = ["UserId", "CompanyId", "StockDate", "TimeFrame"]
-        partition_cols = ["UserId", "TimeFrame"]
-        table = "bsf.history_signals"
-        self.write_delta_merge(sdf, table, merge_keys,partition_cols)    
-        # Merge last row table
-        #self.merge_signal_table(latest_sdf, "bsf.history_signals_last", merge_keys=["UserId", "CompanyId", "StockDate", "TimeFrame"], overwrite_partition=True)
-        merge_keys = ["UserId", "CompanyId", "StockDate", "TimeFrame"]
-        partition_cols = ["UserId", "TimeFrame"]
-        table = "bsf.history_signals_last"
-        self.write_delta_merge(sdf, table, merge_keys,partition_cols)   
-
-        
     def write_signals_pdf(self, history_df=None, timeframe=None):
         if history_df is None or len(history_df) == 0:
             print("⚠️ No history data provided. Skipping write.")
@@ -571,6 +408,41 @@ class DBUtils:
         #self.merge_signal_table(latest_df[good_cols], "bsf.history_signals_last_good", ["CompanyId", "StockDate", "TimeFrame"],overwrite_partition=True)
         #self.merge_signal_table(latest_df, "bsf.history_signals_last_all", ["CompanyId", "StockDate", "TimeFrame"],overwrite_partition=True)
 
+
+    def write_signals(self, sdf=None):
+        """
+        Write signals directly from a Spark DataFrame to Delta tables.
+        Accepts sdf: Spark DataFrame with all necessary columns.
+        """
+        if sdf is None or sdf.rdd.isEmpty():
+            print("⚠️ No data provided. Skipping write.")
+            return
+    
+        # Columns to keep
+        keep_cols = [
+            "UserId","CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
+            "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp", "MomentumDown",
+            "ConfirmedUpTrend", "ConfirmedDownTrend", "Volatility", "LowVolatility", "HighVolatility", "SignalStrength",
+            "SignalStrengthHybrid", "ActionConfidence", "ActionConfidenceNorm",
+            "BullishStrengthHybrid", "BearishStrengthHybrid", "SignalDuration",
+            "PatternAction", "CandleAction","UpTrend_Return",
+            "CandidateAction", "Action", "TomorrowAction", "TimeFrame"
+        ]
+    
+        # Filter columns
+        sdf = sdf.select(*[c for c in keep_cols if c in sdf.columns])
+    
+        # Latest row per company
+        latest_sdf = sdf.withColumn("row_num", F.row_number().over(
+            Window.partitionBy("CompanyId").orderBy(F.desc("StockDate"))
+        )).filter(F.col("row_num") == 1).drop("row_num")
+    
+        # Merge main table
+        self.merge_signal_table(sdf, "bsf.history_signals", merge_keys=["UserId", "CompanyId", "StockDate", "TimeFrame"])
+    
+        # Merge last row table
+        self.merge_signal_table(latest_sdf, "bsf.history_signals_last", merge_keys=["UserId", "CompanyId", "StockDate", "TimeFrame"], overwrite_partition=True)
+
     
     def write_candidates(self, df_phase3_enriched, df_topN_companies):
 
@@ -582,8 +454,7 @@ class DBUtils:
         df_topN_companies.write.format("delta").mode("append").saveAsTable(f"{table}")
         
         # csv for review
-        conf = self.spark.sparkContext.getConf()
-        output_path = conf.get("spark.nond2rd.path", "/srv/lakehouse/nond2rd")
+        output_path = self.conf.get("spark.nond2rd.path", "/srv/lakehouse/nond2rd")
         #output_path = "/srv/lakehouse/nond2rd"
         df_topN_companies.toPandas().to_csv(
             f"{output_path}/{'final_candidates'}.csv",
@@ -601,7 +472,7 @@ class DBUtils:
         self.spark.sql(query)
         print("      ✅ OPTIMIZE/ZORDER Completed on StockDate: bsf.companystockhistory")
 
-    def create_bsf(self, engine, user, df_dict):
+    def create_bsf(self, engine, df_dict):
         
         # -----------------------------
         # Optional: show counts
@@ -654,7 +525,7 @@ class DBUtils:
                 )
                 '''       
             row_data = {
-                "UserId": user,
+                "UserId": 1,
                 "IndustryId": 1,
                 "MarketSectorId": 1,
                 "ParentTemplateId": None,

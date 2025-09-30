@@ -1,4 +1,4 @@
-
+test git
 ✅ Explanation of Markers (Why they exist):
 Doji – Identifies indecision candles with very small bodies relative to range. Useful to spot potential reversals.
 Hammer / HangingMan – Long lower shadow, small body; bullish after downtrend (Hammer) or bearish after uptrend (HangingMan).

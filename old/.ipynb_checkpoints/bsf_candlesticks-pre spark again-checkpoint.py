@@ -62,286 +62,274 @@ def generate_signal_columns(sdf, timeframe="Short", user: int = None):
 # -------------------------------
 # Add Candlestick Patterns
 # -------------------------------
-from pyspark.sql import functions as F
-from pyspark.sql.window import Window
-from operator import itemgetter
-from functools import reduce
-from pyspark.sql import SparkSession
-
-def get_candle_params(sdf, user: int = 1, close_col: str = "Close"):
+def get_candle_params(close_price: float, user: int = 1):
     """
-    Add candlestick pattern threshold columns to DataFrame, scaled by per-row close price.
-    Fully Spark-native, optimized for 4-core, 8GB server with ~912,500 rows, sub-2-hour runtime.
-    
-    Args:
-        sdf: Spark DataFrame with CompanyId, close_col, StockDate
-        user: Integer user ID for settings
-        close_col: Name of the close price column (default: "Close")
-    
-    Returns:
-        Spark DataFrame with additional columns: doji_thresh, long_body, small_body, etc.
+    Returns candlestick pattern thresholds scaled by price magnitude.
+    Uses formula parameters from settings, defaults if no user override.
     """
-    # Validate inputs
-    required_cols = ["CompanyId", close_col, "StockDate"]
-    missing_cols = [col for col in required_cols if col not in sdf.columns]
-    if missing_cols:
-        raise ValueError(f"Input DataFrame missing columns: {missing_cols}")
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    price = max(close_price, 1e-6)
+    logp = np.log10(price)
 
-    # Load user settings (assumed to return dict)
-    spark = SparkSession.getActiveSession()
-    user_settings = spark.sparkContext.broadcast(load_settings(user).get("candle_params", {
-        "doji_base": 0.1, "doji_scale": 0.05, "doji_min": 0.05, "doji_max": 0.2,
-        "long_body_base": 0.7, "long_body_scale": 0.1, "long_body_min": 0.6, "long_body_max": 0.9,
-        "small_body_base": 0.3, "small_body_scale": 0.05, "small_body_min": 0.2, "small_body_max": 0.4,
-        "shadow_ratio_base": 2.0, "shadow_ratio_scale": 0.5, "shadow_ratio_min": 1.5, "shadow_ratio_max": 3.0,
-        "near_edge": 0.05, "highvol_spike": 2.0, "lowvol_dip": 0.5,
-        "hammer_base": 0.2, "hammer_scale": 0.05, "hammer_min": 0.1, "hammer_max": 0.3,
-        "marubozu_base": 0.1, "marubozu_scale": 0.05, "marubozu_min": 0.05, "marubozu_max": 0.2,
-        "rng_base": 0.05, "rng_scale": 0.02, "rng_min": 0.03, "rng_max": 0.1
-    }))
+    # Convert int user to string key
+    user_settings = load_settings(user)["candle_params"]
 
-    # Compute price-scaled thresholds per row
-    logp = F.log10(F.greatest(F.col(close_col), F.lit(1e-6)))
-    sdf = sdf.withColumn("logp", (logp + 6) / 8)
-
-    def add_threshold(col_name, base, scale, min_val, max_val):
-        return sdf.withColumn(
-            col_name,
-            F.least(
-                F.greatest(
-                    F.lit(base) + F.lit(scale) * F.col("logp"),
-                    F.lit(min_val)
-                ),
-                F.lit(max_val)
-            )
-        )
-
-    # Add threshold columns
-    sdf = add_threshold("doji_thresh", user_settings.value["doji_base"], user_settings.value["doji_scale"],
-                       user_settings.value["doji_min"], user_settings.value["doji_max"])
-    sdf = add_threshold("long_body", user_settings.value["long_body_base"], user_settings.value["long_body_scale"],
-                       user_settings.value["long_body_min"], user_settings.value["long_body_max"])
-    sdf = add_threshold("small_body", user_settings.value["small_body_base"], user_settings.value["small_body_scale"],
-                       user_settings.value["small_body_min"], user_settings.value["small_body_max"])
-    sdf = add_threshold("shadow_ratio", user_settings.value["shadow_ratio_base"], user_settings.value["shadow_ratio_scale"],
-                       user_settings.value["shadow_ratio_min"], user_settings.value["shadow_ratio_max"])
-    sdf = sdf.withColumn("near_edge", F.lit(user_settings.value["near_edge"]))
-    sdf = sdf.withColumn("highvol_spike", F.lit(user_settings.value["highvol_spike"]))
-    sdf = sdf.withColumn("lowvol_dip", F.lit(user_settings.value["lowvol_dip"]))
-    sdf = add_threshold("hammer_thresh", user_settings.value["hammer_base"], user_settings.value["hammer_scale"],
-                       user_settings.value["hammer_min"], user_settings.value["hammer_max"])
-    sdf = add_threshold("marubozu_thresh", user_settings.value["marubozu_base"], user_settings.value["marubozu_scale"],
-                       user_settings.value["marubozu_min"], user_settings.value["marubozu_max"])
-    sdf = add_threshold("rng_thresh", user_settings.value["rng_base"], user_settings.value["rng_scale"],
-                       user_settings.value["rng_min"], user_settings.value["rng_max"])
-
-    sdf = sdf.drop("logp")
-    return sdf
-
-def add_candle_patterns_fast(sdf, tf_window=5, user: int = 1, 
-                            open_col="Open", high_col="High", low_col="Low", 
-                            close_col="Close", volume_col="Volume"):
-    """
-    Spark-native candlestick pattern detection with per-row thresholds.
-    Optimized for 4-core, 8GB server with ~912,500 rows, sub-2-hour runtime.
+    thresholds = {
+        "doji_thresh": np.clip(user_settings["doji_base"] + user_settings["doji_scale"] * (logp + 6) / 8,
+                               user_settings["doji_min"], user_settings["doji_max"]),
+        "long_body": np.clip(user_settings["long_body_base"] + user_settings["long_body_scale"] * (logp + 6) / 8,
+                             user_settings["long_body_min"], user_settings["long_body_max"]),
+        "small_body": np.clip(user_settings["small_body_base"] + user_settings["small_body_scale"] * (logp + 6) / 8,
+                              user_settings["small_body_min"], user_settings["small_body_max"]),
+        "shadow_ratio": np.clip(user_settings["shadow_ratio_base"] + user_settings["shadow_ratio_scale"] * (logp + 6) / 8,
+                                user_settings["shadow_ratio_min"], user_settings["shadow_ratio_max"]),
+        "near_edge": user_settings["near_edge"],
+        "highvol_spike": user_settings["highvol_spike"],
+        "lowvol_dip": user_settings["lowvol_dip"],
+        "hammer_thresh": np.clip(user_settings["hammer_base"] + user_settings["hammer_scale"] * (logp + 6) / 8,
+                                 user_settings["hammer_min"], user_settings["hammer_max"]),
+        "marubozu_thresh": np.clip(user_settings["marubozu_base"] + user_settings["marubozu_scale"] * (logp + 6) / 8,
+                                   user_settings["marubozu_min"], user_settings["marubozu_max"]),
+        "rng_thresh": np.clip(user_settings["rng_base"] + user_settings["rng_scale"] * (logp + 6) / 8,
+                              user_settings["rng_min"], user_settings["rng_max"])
+    }
     
-    Args:
-        sdf: Spark DataFrame with CompanyId, open_col, high_col, low_col, close_col, volume_col, StockDate
-        tf_window: Integer window for rolling calculations
-        user: Integer user ID for settings
-        open_col, high_col, low_col, close_col, volume_col: Names of OHLCV columns (default: Open, High, Low, Close, Volume)
+    # Print nicely
+    #print(f"\nCandlestick thresholds for user {user} (close price={price}):")
+    #for k, v in thresholds.items():
+    #    print(f"  {k:15}: {v:.6f}")
+
+    return thresholds
     
-    Returns:
-        Spark DataFrame with pattern columns, PatternCount, and PatternType
+def add_candle_patterns(sdf, tf_window=5, user: int = 1):
     """
-    # Validate inputs
-    required_cols = ["CompanyId", open_col, high_col, low_col, close_col, volume_col, "StockDate"]
-    missing_cols = [col for col in required_cols if col not in sdf.columns]
-    if missing_cols:
-        raise ValueError(f"Input DataFrame missing columns: {missing_cols}")
-    if tf_window < 1:
-        raise ValueError("tf_window must be positive")
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    Spark-native candlestick pattern detection for multiple companies.
+    Expects sdf with columns: CompanyId, Open, High, Low, Close, Volume, StockDate
+    Returns sdf with new boolean columns for each pattern and PatternCount/PatternType.
+    Fully Spark vectorized — no .collect() calls.
+    """
 
-    # Map column names to internal aliases
-    o, h, l, c, v = open_col, high_col, low_col, close_col, volume_col
+    o, h, l, c, v = "Open", "High", "Low", "Close", "Volume"
 
-    # Add per-row candle parameters
-    sdf = get_candle_params(sdf, user=user, close_col=close_col)
+    # --- Windows ---
+    w_tf = Window.orderBy("StockDate").rowsBetween(-(tf_window-1), 0)
+    w_shift1 = Window.orderBy("StockDate")
+    w_shift2 = Window.orderBy("StockDate")
 
-    # Windows (bounded for memory where needed)
-    max_lag = max(tf_window - 1, 4)
-    w_tf = Window.partitionBy("CompanyId").orderBy("StockDate").rowsBetween(-max_lag, 0)
-    w_shift = Window.partitionBy("CompanyId").orderBy("StockDate")  # No rowsBetween for lag
-    w_vol = Window.partitionBy("CompanyId").orderBy("StockDate").rowsBetween(-19, 0)
+    # --- Last Close per company ---
+    last_close = sdf.agg(F.last("Close").alias("last_close")).first()["last_close"]
+    candle_params = get_candle_params(last_close)
 
-    # Rolling calculations
-    sdf = sdf.withColumn("O_roll", F.first(o).over(w_tf)) \
-             .withColumn("C_roll", F.last(c).over(w_tf)) \
-             .withColumn("H_roll", F.max(h).over(w_tf)) \
-             .withColumn("L_roll", F.min(l).over(w_tf)) \
-             .withColumn("V_avg20", F.avg(v).over(w_vol))
+    doji_thresh, hammer_thresh, marubozu_thresh, long_body, small_body, shadow_ratio, near_edge, highvol_spike, lowvol_dip, rng_thresh = \
+        itemgetter(
+            "doji_thresh", "hammer_thresh", "marubozu_thresh", "long_body", "small_body", 
+            "shadow_ratio", "near_edge", "highvol_spike", "lowvol_dip", "rng_thresh"
+        )(candle_params)
 
-    # Volume spikes
-    sdf = sdf.withColumn("HighVolume", F.col(v) > F.col("highvol_spike") * F.col("V_avg20")) \
-             .withColumn("LowVolume", F.col(v) < F.col("lowvol_dip") * F.col("V_avg20"))
+    # --- Rolling calculations ---
+    sdf = sdf.withColumn("O_roll", F.first(o).over(w_tf))
+    sdf = sdf.withColumn("C_roll", F.last(c).over(w_tf))
+    sdf = sdf.withColumn("H_roll", F.max(h).over(w_tf))
+    sdf = sdf.withColumn("L_roll", F.min(l).over(w_tf))
+    sdf = sdf.withColumn("V_avg20", F.avg(v).over(Window.partitionBy("CompanyId").orderBy("StockDate").rowsBetween(-19,0)))
 
-    # Body, shadows, range
-    sdf = sdf.withColumn(
-        "Body",
-        F.when(F.col("C_roll") != 0, F.abs(F.col("C_roll") - F.col("O_roll")) / F.col("C_roll")).otherwise(0.0)
-    ).withColumn(
-        "UpShadow",
-        F.when(F.col("C_roll") != 0,
-               (F.col("H_roll") - F.greatest(F.col("O_roll"), F.col("C_roll"))) / F.col("C_roll")).otherwise(0.0)
-    ).withColumn(
-        "DownShadow",
-        F.when(F.col("C_roll") != 0,
-               (F.least(F.col("O_roll"), F.col("C_roll")) - F.col("L_roll")) / F.col("C_roll")).otherwise(0.0)
-    ).withColumn(
-        "Range",
-        F.when(F.col("C_roll") != 0, (F.col("H_roll") - F.col("L_roll")) / F.col("C_roll")).otherwise(0.0)
-    ).withColumn(
-        "Bull",
-        F.col("C_roll") > F.col("O_roll")
-    ).withColumn(
-        "Bear",
-        F.col("O_roll") > F.col("C_roll")
+    # --- Volume spikes ---
+    sdf = sdf.withColumn("HighVolume", F.col(v) > highvol_spike * F.col("V_avg20"))
+    sdf = sdf.withColumn("LowVolume", F.col(v) < lowvol_dip * F.col("V_avg20"))
+
+    # --- Body, shadows, range ---
+    sdf = sdf.withColumn("Body", F.abs(F.col("C_roll") - F.col("O_roll")) / F.col("C_roll"))
+    sdf = sdf.withColumn("UpShadow", (F.col("H_roll") - F.greatest(F.col("O_roll"), F.col("C_roll"))) / F.col("C_roll"))
+    sdf = sdf.withColumn("DownShadow", (F.least(F.col("O_roll"), F.col("C_roll")) - F.col("L_roll")) / F.col("C_roll"))
+    sdf = sdf.withColumn("Range", (F.col("H_roll") - F.col("L_roll")) / F.col("C_roll"))
+
+    # --- Bull/Bear ---
+    sdf = sdf.withColumn("Bull", F.col("C_roll") > F.col("O_roll"))
+    sdf = sdf.withColumn("Bear", F.col("O_roll") > F.col("C_roll"))
+
+    # --- Trend detection ---
+    first_close = F.first(c).over(w_tf)
+    last_close = F.last(c).over(w_tf)
+    sdf = sdf.withColumn("UpTrend", last_close > first_close)
+    sdf = sdf.withColumn("DownTrend", last_close < first_close)
+
+    # --- Single-bar patterns ---
+    sdf = sdf.withColumn("Doji", F.col("Body") <= doji_thresh * F.col("Range"))
+    sdf = sdf.withColumn("Hammer", 
+        (F.col("DownShadow") >= shadow_ratio * F.col("Body")) &
+        (F.col("UpShadow") <= hammer_thresh * F.col("Body")) &
+        (F.col("Body") > 0) &
+        (F.col("Body") <= 2 * hammer_thresh * F.col("Range")) &
+        F.col("DownTrend")
     )
+    sdf = sdf.withColumn("InvertedHammer",
+        (F.col("UpShadow") >= shadow_ratio * F.col("Body")) &
+        (F.col("DownShadow") <= hammer_thresh * F.col("Body")) &
+        (F.col("Body") > 0) &
+        (F.col("Body") <= 2 * hammer_thresh * F.col("Range")) &
+        F.col("DownTrend")
+    )
+    sdf = sdf.withColumn("BullishMarubozu",
+        F.col("Bull") & (F.col("Body") >= long_body * F.col("Range")) &
+        (F.col("UpShadow") <= marubozu_thresh * F.col("Range")) &
+        (F.col("DownShadow") <= marubozu_thresh * F.col("Range"))
+    )
+    sdf = sdf.withColumn("BearishMarubozu",
+        F.col("Bear") & (F.col("Body") >= long_body * F.col("Range")) &
+        (F.col("UpShadow") <= marubozu_thresh * F.col("Range")) &
+        (F.col("DownShadow") <= marubozu_thresh * F.col("Range"))
+    )
+    sdf = sdf.withColumn("SuspiciousCandle", (F.col("Range") <= rng_thresh) | (F.col("Body") <= rng_thresh))
+    sdf = sdf.withColumn("HangingMan", F.col("Hammer") & F.col("UpTrend"))
+    sdf = sdf.withColumn("ShootingStar", F.col("InvertedHammer") & F.col("UpTrend"))
 
-    # Trend detection
-    sdf = sdf.withColumn("UpTrend", F.last(c).over(w_tf) > F.first(c).over(w_tf)) \
-             .withColumn("DownTrend", F.last(c).over(w_tf) < F.first(c).over(w_tf))
+    # --- Multi-bar shifts (lags) ---
+    for col_name in ["O","C","H","L"]:
+        sdf = sdf.withColumn(f"{col_name}1", F.lag(f"{col_name}_roll",1).over(w_shift1))
+        sdf = sdf.withColumn(f"{col_name}2", F.lag(f"{col_name}_roll",2).over(w_shift2))
+    
+    for col_name in ["Bull","Bear"]:
+        sdf = sdf.withColumn(f"{col_name}1", F.lag(f"{col_name}",1).over(w_shift1))
+        sdf = sdf.withColumn(f"{col_name}2", F.lag(f"{col_name}",2).over(w_shift2))
 
-    # Single-bar patterns
-    sdf = sdf.withColumn("Doji", F.col("Body") <= F.col("doji_thresh") * F.col("Range")) \
-             .withColumn("Hammer", (F.col("DownShadow") >= F.col("shadow_ratio") * F.col("Body")) &
-                                  (F.col("UpShadow") <= F.col("hammer_thresh") * F.col("Body")) &
-                                  (F.col("Body") > 0) &
-                                  (F.col("Body") <= 2 * F.col("hammer_thresh") * F.col("Range")) &
-                                  F.col("DownTrend")) \
-             .withColumn("InvertedHammer", (F.col("UpShadow") >= F.col("shadow_ratio") * F.col("Body")) &
-                                          (F.col("DownShadow") <= F.col("hammer_thresh") * F.col("Body")) &
-                                          (F.col("Body") > 0) &
-                                          (F.col("Body") <= 2 * F.col("hammer_thresh") * F.col("Range")) &
-                                          F.col("DownTrend")) \
-             .withColumn("BullishMarubozu", F.col("Bull") & (F.col("Body") >= F.col("long_body") * F.col("Range")) &
-                                              (F.col("UpShadow") <= F.col("marubozu_thresh") * F.col("Range")) &
-                                              (F.col("DownShadow") <= F.col("marubozu_thresh") * F.col("Range"))) \
-             .withColumn("BearishMarubozu", F.col("Bear") & (F.col("Body") >= F.col("long_body") * F.col("Range")) &
-                                              (F.col("UpShadow") <= F.col("marubozu_thresh") * F.col("Range")) &
-                                              (F.col("DownShadow") <= F.col("marubozu_thresh") * F.col("Range"))) \
-             .withColumn("SuspiciousCandle", (F.col("Range") <= F.col("rng_thresh")) | (F.col("Body") <= F.col("rng_thresh"))) \
-             .withColumn("HangingMan", F.col("Hammer") & F.col("UpTrend")) \
-             .withColumn("ShootingStar", F.col("InvertedHammer") & F.col("UpTrend")) \
-             .withColumn("SpinningTop", (F.col("Body") <= F.col("small_body") * F.col("Range")) &
-                                        (F.col("UpShadow") >= F.col("Body")) &
-                                        (F.col("DownShadow") >= F.col("Body")))
+    # --- Multi-bar patterns ---
+    sdf = sdf.withColumn("BullishEngulfing", 
+        (F.col("O1") > F.col("C1")) & F.col("Bull") & (F.col("C_roll") >= F.col("O1")) & (F.col("O_roll") <= F.col("C1"))
+    )
+    sdf = sdf.withColumn("BearishEngulfing",
+        (F.col("C1") > F.col("O1")) & F.col("Bear") & (F.col("O_roll") >= F.col("C1")) & (F.col("C_roll") <= F.col("O1"))
+    )
+    # --- Multi-bar patterns ---
+    sdf = sdf.withColumn(
+        "BullishEngulfing",
+        (F.col("O1") > F.col("C1")) & F.col("Bull") & (F.col("C_roll") >= F.col("O1")) & (F.col("O_roll") <= F.col("C1"))
+    )
+    sdf = sdf.withColumn(
+        "BearishEngulfing",
+        (F.col("C1") > F.col("O1")) & F.col("Bear") & (F.col("O_roll") >= F.col("C1")) & (F.col("C_roll") <= F.col("O1"))
+    )
+    sdf = sdf.withColumn(
+        "BullishHarami",
+        (F.col("O1") > F.col("C1")) & F.col("Bull") &
+        (F.greatest(F.col("O_roll"), F.col("C_roll")) <= F.greatest(F.col("O1"), F.col("C1"))) &
+        (F.least(F.col("O_roll"), F.col("C_roll")) >= F.least(F.col("O1"), F.col("C1")))
+    )
+    sdf = sdf.withColumn(
+        "BearishHarami",
+        (F.col("C1") > F.col("O1")) & F.col("Bear") &
+        (F.greatest(F.col("O_roll"), F.col("C_roll")) <= F.greatest(F.col("O1"), F.col("C1"))) &
+        (F.least(F.col("O_roll"), F.col("C_roll")) >= F.least(F.col("O1"), F.col("C1")))
+    )
+    sdf = sdf.withColumn(
+        "HaramiCross",
+        F.col("Doji") & (F.greatest(F.col("O_roll"), F.col("C_roll")) <= F.greatest(F.col("O1"), F.col("C1"))) &
+        (F.least(F.col("O_roll"), F.col("C_roll")) >= F.least(F.col("O1"), F.col("C1")))
+    )
+    sdf = sdf.withColumn(
+        "PiercingLine",
+        (F.col("O1") > F.col("C1")) & F.col("Bull") &
+        (F.col("O_roll") < F.col("C1")) & (F.col("C_roll") > (F.col("O1") + F.col("C1"))/2) & (F.col("C_roll") < F.col("O1"))
+    )
+    sdf = sdf.withColumn(
+        "DarkCloudCover",
+        (F.col("C1") > F.col("O1")) & F.col("Bear") &
+        (F.col("O_roll") > F.col("C1")) & (F.col("C_roll") < (F.col("O1") + F.col("C1"))/2) & (F.col("C_roll") > F.col("O1"))
+    )
+    # --- More multi-bar patterns ---
+    
+    # MorningStar
+    sdf = sdf.withColumn(
+        "MorningStar",
+        (F.col("O2") > F.col("C2")) &
+        (F.abs(F.col("C1") - F.col("O1")) < F.abs(F.col("C2") - F.col("O2")) * small_body) &
+        F.col("Bull")
+    )
+    
+    # EveningStar
+    sdf = sdf.withColumn(
+        "EveningStar",
+        (F.col("C2") > F.col("O2")) &
+        (F.abs(F.col("C1") - F.col("O1")) < F.abs(F.col("C2") - F.col("O2")) * small_body) &
+        F.col("Bear")
+    )
+    
+    # Three White Soldiers
+    sdf = sdf.withColumn(
+        "ThreeWhiteSoldiers",
+        F.col("Bull") & F.col("Bull1") & F.col("Bull2") &
+        (F.col("C_roll") > F.col("C1")) & (F.col("C1") > F.col("C2"))
+    )
+    
+    # Three Black Crows
+    sdf = sdf.withColumn(
+        "ThreeBlackCrows",
+        F.col("Bear") & F.col("Bear1") & F.col("Bear2") &
+        (F.col("C_roll") < F.col("C1")) & (F.col("C1") < F.col("C2"))
+    )
+    
+    # Tweezer Top / Bottom
+    sdf = sdf.withColumn("TweezerTop", (F.col("H_roll") == F.col("H1")) & F.col("Bear") & F.col("Bull1"))
+    sdf = sdf.withColumn("TweezerBottom", (F.col("L_roll") == F.col("L1")) & F.col("Bull") & F.col("Bear1"))
+    
+    # Inside Bar / Outside Bar
+    sdf = sdf.withColumn("InsideBar", (F.col("H_roll") < F.col("H1")) & (F.col("L_roll") > F.col("L1")))
+    sdf = sdf.withColumn("OutsideBar", (F.col("H_roll") > F.col("H1")) & (F.col("L_roll") < F.col("L1")))
+    
+    # Near High / Near Low using rolling max/min over tf_window
+    w_tf_max = Window.orderBy("StockDate").rowsBetween(-(tf_window-1), 0)
+    sdf = sdf.withColumn("RollingHigh", F.max("H_roll").over(w_tf_max))
+    sdf = sdf.withColumn("RollingLow", F.min("L_roll").over(w_tf_max))
+    sdf = sdf.withColumn("NearHigh", F.col("H_roll") >= F.col("RollingHigh") * (1 - near_edge))
+    sdf = sdf.withColumn("NearLow", F.col("L_roll") <= F.col("RollingLow") * (1 + near_edge))
+    
+    # Dragonfly / Gravestone / Long-Legged Doji
+    sdf = sdf.withColumn("DragonflyDoji", (F.abs(F.col("C_roll") - F.col("O_roll")) <= doji_thresh * F.col("Range")) &
+                                           (F.col("H_roll") == F.col("C_roll")) &
+                                           (F.col("L_roll") < F.col("O_roll")))
+    sdf = sdf.withColumn("GravestoneDoji", (F.abs(F.col("C_roll") - F.col("O_roll")) <= doji_thresh * F.col("Range")) &
+                                           (F.col("L_roll") == F.col("C_roll")) &
+                                           (F.col("H_roll") > F.col("O_roll")))
+    sdf = sdf.withColumn("LongLeggedDoji", (F.abs(F.col("C_roll") - F.col("O_roll")) <= doji_thresh * F.col("Range")) &
+                                            (F.col("UpShadow") > shadow_ratio * F.col("Body")) &
+                                            (F.col("DownShadow") > shadow_ratio * F.col("Body")))
+    
+    # Rising / Falling Three Methods
+    sdf = sdf.withColumn("RisingThreeMethods",
+                        F.col("Bull2") & F.col("Bull1") & F.col("Bull") &
+                        (F.col("C1") < F.col("O2")) & (F.col("C_roll") > F.col("C1")))
+    sdf = sdf.withColumn("FallingThreeMethods",
+                        F.col("Bear2") & F.col("Bear1") & F.col("Bear") &
+                        (F.col("C1") > F.col("O2")) & (F.col("C_roll") < F.col("C1")))
+    
+    # Gap Up / Gap Down
+    sdf = sdf.withColumn("GapUp", F.col("O_roll") > F.col("H1"))
+    sdf = sdf.withColumn("GapDown", F.col("O_roll") < F.col("L1"))
+    
+    # Spinning Top
+    sdf = sdf.withColumn("SpinningTop", (F.col("Body") <= small_body * F.col("Range")) &
+                                          (F.col("UpShadow") >= F.col("Body")) &
+                                          (F.col("DownShadow") >= F.col("Body")))
+    
+    # Climactic Candle: compare range to rolling mean of range over tf_window
+    sdf = sdf.withColumn("RangeMean", F.avg("Range").over(w_tf))
+    sdf = sdf.withColumn("ClimacticCandle", F.col("Range") > 2 * F.col("RangeMean"))
 
-    # Multi-bar lags
-    for col_name in ["O_roll", "C_roll", "H_roll", "L_roll", "Bull", "Bear", "Body"]:
-        for lag in [1, 2, 3, 4]:
-            sdf = sdf.withColumn(f"{col_name}{lag}", F.lag(col_name, lag).over(w_shift))
-
-    # Multi-bar patterns
-    sdf = sdf.withColumn("BullishEngulfing", (F.col("O_roll1") > F.col("C_roll1")) & F.col("Bull") & 
-                         (F.col("C_roll") >= F.col("O_roll1")) & (F.col("O_roll") <= F.col("C_roll1"))) \
-             .withColumn("BearishEngulfing", (F.col("C_roll1") > F.col("O_roll1")) & F.col("Bear") & 
-                         (F.col("O_roll") >= F.col("C_roll1")) & (F.col("C_roll") <= F.col("O_roll1"))) \
-             .withColumn("BullishHarami", (F.col("O_roll1") > F.col("C_roll1")) & F.col("Bull") &
-                         (F.greatest(F.col("O_roll"), F.col("C_roll")) <= F.greatest(F.col("O_roll1"), F.col("C_roll1"))) &
-                         (F.least(F.col("O_roll"), F.col("C_roll")) >= F.least(F.col("O_roll1"), F.col("C_roll1")))) \
-             .withColumn("BearishHarami", (F.col("C_roll1") > F.col("O_roll1")) & F.col("Bear") &
-                         (F.greatest(F.col("O_roll"), F.col("C_roll")) <= F.greatest(F.col("O_roll1"), F.col("C_roll1"))) &
-                         (F.least(F.col("O_roll"), F.col("C_roll")) >= F.least(F.col("O_roll1"), F.col("C_roll1")))) \
-             .withColumn("HaramiCross", F.col("Doji") &
-                         (F.greatest(F.col("O_roll"), F.col("C_roll")) <= F.greatest(F.col("O_roll1"), F.col("C_roll1"))) &
-                         (F.least(F.col("O_roll"), F.col("C_roll")) >= F.least(F.col("O_roll1"), F.col("C_roll1")))) \
-             .withColumn("PiercingLine", (F.col("O_roll1") > F.col("C_roll1")) & F.col("Bull") &
-                         (F.col("O_roll") < F.col("C_roll1")) & (F.col("C_roll") > (F.col("O_roll1") + F.col("C_roll1"))/2) & 
-                         (F.col("C_roll") < F.col("O_roll1"))) \
-             .withColumn("DarkCloudCover", (F.col("C_roll1") > F.col("O_roll1")) & F.col("Bear") &
-                         (F.col("O_roll") > F.col("C_roll1")) & (F.col("C_roll") < (F.col("O_roll1") + F.col("C_roll1"))/2) & 
-                         (F.col("C_roll") > F.col("O_roll1"))) \
-             .withColumn("MorningStar", (F.col("O_roll2") > F.col("C_roll2")) & 
-                         (F.abs(F.col("C_roll1") - F.col("O_roll1")) < F.abs(F.col("C_roll2") - F.col("O_roll2")) * F.col("small_body")) & 
-                         F.col("Bull")) \
-             .withColumn("EveningStar", (F.col("C_roll2") > F.col("O_roll2")) & 
-                         (F.abs(F.col("C_roll1") - F.col("O_roll1")) < F.abs(F.col("C_roll2") - F.col("O_roll2")) * F.col("small_body")) & 
-                         F.col("Bear")) \
-             .withColumn("ThreeWhiteSoldiers", F.col("Bull") & F.col("Bull1") & F.col("Bull2") & 
-                         (F.col("C_roll") > F.col("C_roll1")) & (F.col("C_roll1") > F.col("C_roll2"))) \
-             .withColumn("ThreeBlackCrows", F.col("Bear") & F.col("Bear1") & F.col("Bear2") & 
-                         (F.col("C_roll") < F.col("C_roll1")) & (F.col("C_roll1") < F.col("C_roll2"))) \
-             .withColumn("TweezerTop", (F.col("H_roll") == F.col("H_roll1")) & F.col("Bear") & F.col("Bull1")) \
-             .withColumn("TweezerBottom", (F.col("L_roll") == F.col("L_roll1")) & F.col("Bull") & F.col("Bear1")) \
-             .withColumn("InsideBar", (F.col("H_roll") < F.col("H_roll1")) & F.col("L_roll") > F.col("L_roll1"))) \
-             .withColumn("OutsideBar", (F.col("H_roll") > F.col("H_roll1")) & F.col("L_roll") < F.col("L_roll1"))) \
-             .withColumn("NearHigh", F.col("H_roll") >= F.max("H_roll").over(w_tf) * (1 - F.col("near_edge"))) \
-             .withColumn("NearLow", F.col("L_roll") <= F.min("L_roll").over(w_tf) * (1 + F.col("near_edge"))) \
-             .withColumn("DragonflyDoji", (F.abs(F.col("C_roll") - F.col("O_roll")) <= F.col("doji_thresh") * F.col("Range")) &
-                         (F.col("H_roll") == F.col("C_roll")) & (F.col("L_roll") < F.col("O_roll"))) \
-             .withColumn("GravestoneDoji", (F.abs(F.col("C_roll") - F.col("O_roll")) <= F.col("doji_thresh") * F.col("Range")) &
-                         (F.col("L_roll") == F.col("C_roll")) & (F.col("H_roll") > F.col("O_roll"))) \
-             .withColumn("LongLeggedDoji", (F.abs(F.col("C_roll") - F.col("O_roll")) <= F.col("doji_thresh") * F.col("Range")) &
-                         (F.col("UpShadow") > F.col("shadow_ratio") * F.col("Body")) & (F.col("DownShadow") > F.col("shadow_ratio") * F.col("Body"))) \
-             .withColumn("RisingThreeMethods", 
-                         F.col("Bull4") & F.col("Bear3") & F.col("Bear2") & F.col("Bear1") & F.col("Bull") &
-                         (F.coalesce(F.col("Body3"), F.lit(0.0)) < F.col("small_body") * F.coalesce(F.col("Body4"), F.lit(1.0))) &
-                         (F.coalesce(F.col("Body2"), F.lit(0.0)) < F.col("small_body") * F.coalesce(F.col("Body4"), F.lit(1.0))) &
-                         (F.coalesce(F.col("Body1"), F.lit(0.0)) < F.col("small_body") * F.coalesce(F.col("Body4"), F.lit(1.0))) &
-                         (F.coalesce(F.col("H3"), F.lit(0.0)) <= F.coalesce(F.col("H4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("L3"), F.lit(0.0)) >= F.coalesce(F.col("L4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("H2"), F.lit(0.0)) <= F.coalesce(F.col("H4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("L2"), F.lit(0.0)) >= F.coalesce(F.col("L4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("H1"), F.lit(0.0)) <= F.coalesce(F.col("H4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("L1"), F.lit(0.0)) >= F.coalesce(F.col("L4"), F.lit(0.0))) &
-                         (F.col("C_roll") > F.coalesce(F.col("C_roll4"), F.lit(0.0)))) \
-             .withColumn("FallingThreeMethods", 
-                         F.col("Bear4") & F.col("Bull3") & F.col("Bull2") & F.col("Bull1") & F.col("Bear") &
-                         (F.coalesce(F.col("Body3"), F.lit(0.0)) < F.col("small_body") * F.coalesce(F.col("Body4"), F.lit(1.0))) &
-                         (F.coalesce(F.col("Body2"), F.lit(0.0)) < F.col("small_body") * F.coalesce(F.col("Body4"), F.lit(1.0))) &
-                         (F.coalesce(F.col("Body1"), F.lit(0.0)) < F.col("small_body") * F.coalesce(F.col("Body4"), F.lit(1.0))) &
-                         (F.coalesce(F.col("H3"), F.lit(0.0)) <= F.coalesce(F.col("H4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("L3"), F.lit(0.0)) >= F.coalesce(F.col("L4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("H2"), F.lit(0.0)) <= F.coalesce(F.col("H4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("L2"), F.lit(0.0)) >= F.coalesce(F.col("L4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("H1"), F.lit(0.0)) <= F.coalesce(F.col("H4"), F.lit(0.0))) &
-                         (F.coalesce(F.col("L1"), F.lit(0.0)) >= F.coalesce(F.col("L4"), F.lit(0.0))) &
-                         (F.col("C_roll") < F.coalesce(F.col("C_roll4"), F.lit(0.0)))) \
-             .withColumn("GapUp", F.col("O_roll") > F.col("H_roll1")) \
-             .withColumn("GapDown", F.col("O_roll") < F.col("L_roll1")) \
-             .withColumn("RangeMean", F.avg("Range").over(w_tf)) \
-             .withColumn("ClimacticCandle", F.col("Range") > 2 * F.col("RangeMean"))
-
-    # PatternCount
+    # --- PatternCount ---
     pattern_cols = [
-        "Doji", "Hammer", "InvertedHammer", "BullishMarubozu", "BearishMarubozu", "SuspiciousCandle",
-        "HangingMan", "ShootingStar", "SpinningTop", "BullishEngulfing", "BearishEngulfing",
-        "BullishHarami", "BearishHarami", "HaramiCross", "PiercingLine", "DarkCloudCover",
-        "MorningStar", "EveningStar", "ThreeWhiteSoldiers", "ThreeBlackCrows", "TweezerTop",
-        "TweezerBottom", "InsideBar", "OutsideBar", "NearHigh", "NearLow", "DragonflyDoji",
-        "GravestoneDoji", "LongLeggedDoji", "RisingThreeMethods", "FallingThreeMethods",
-        "GapUp", "GapDown", "ClimacticCandle"
+        "Doji", "Hammer", "InvertedHammer", "BullishMarubozu", "BearishMarubozu",
+        "SuspiciousCandle", "HangingMan", "ShootingStar", "BullishEngulfing", "BearishEngulfing"
+        # add all remaining boolean pattern columns here
     ]
+    sdf = sdf.withColumn("PatternCount", sum(F.col(c).cast("int") for c in pattern_cols))
+
+    # --- PatternType (first match) ---
     sdf = sdf.withColumn(
-        "PatternCount",
-        reduce(lambda a, b: a + b, [F.col(pat).cast("int") for pat in pattern_cols])
+        "PatternType",
+        F.when(F.col("BullishEngulfing"), "BullishEngulfing")
+         .when(F.col("MorningStar"), "MorningStar")
+         .when(F.col("ThreeWhiteSoldiers"), "ThreeWhiteSoldiers")
+         .when(F.col("BullishMarubozu"), "BullishMarubozu")
+         .otherwise("None")
     )
-
-    # PatternType
-    sdf = sdf.withColumn("PatternType", F.array(*[F.when(F.col(pat), pat) for pat in pattern_cols]))
-    sdf = sdf.withColumn("PatternType", F.expr("filter(PatternType, x -> x is not null)[0]"))
-    sdf = sdf.withColumn("PatternType", F.coalesce(F.col("PatternType"), F.lit("None")))
-
-    # Validate output
-    expected_cols = pattern_cols + ["PatternCount", "PatternType"]
-    missing_cols = [col for col in expected_cols if col not in sdf.columns]
-    if missing_cols:
-        print(f"Warning: Failed to create columns: {missing_cols}")
 
     return sdf
 

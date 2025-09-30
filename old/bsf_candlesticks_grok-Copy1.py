@@ -198,13 +198,20 @@ def add_candle_patterns_optimized(df, tf_window=5, user: int = 1,
                        (df["DownShadow"] >= df["Body"])
 
     # Multi-bar lags
+    '''
+    lag_cols = ["O_roll", "C_roll", "H_roll", "L_roll", "Bull", "Bear", "Body"]
+    for col_name in lag_cols:
+        for lag in [1, 2, 3, 4]:
+            df[f"{col_name}{lag}"] = group[col_name].shift(lag).fillna(0.0)  # Fill to avoid NaN propagation
+    '''
+    #fix 1 no good
     lag_cols = ["O_roll", "C_roll", "H_roll", "L_roll", "Bull", "Bear", "Body"]
     bool_lag_cols = ["Bull", "Bear"]
     for col_name in lag_cols:
         fill_val = False if col_name in bool_lag_cols else 0.0
         for lag in [1, 2, 3, 4]:
             df[f"{col_name}{lag}"] = group[col_name].shift(lag).fillna(fill_val)
-
+     
     # Multi-bar patterns
     df["BullishEngulfing"] = (df["O_roll1"] > df["C_roll1"]) & df["Bull"] & \
                             (df["C_roll"] >= df["O_roll1"]) & (df["O_roll"] <= df["C_roll1"])
@@ -396,7 +403,7 @@ def add_trend_filters_optimized(df, timeframe="Daily", user: int = 1):
 
     # Moving Average & slope
     df["MA"] = group[c].rolling(ma_window, min_periods=1).mean().reset_index(0, drop=True)
-    df["MA_lag"] = df.groupby("CompanyId")["MA"].shift(slope_horizon)
+    df["MA_lag"] = group["MA"].shift(slope_horizon)
     df["MA_slope"] = np.where(df["MA_lag"].notnull(), 
                              (df["MA"] - df["MA_lag"]) / df["MA_lag"], 0.0)
     df["UpTrend_MA"] = df["MA_slope"] > 0
@@ -412,16 +419,16 @@ def add_trend_filters_optimized(df, timeframe="Daily", user: int = 1):
     df["UpTrend_Return"] = df["RecentReturn"] > 0
     df["DownTrend_Return"] = df["RecentReturn"] < 0
 
-    # Volatility (per-company median)
+    # Volatility
     df["ReturnPct"] = np.where(
         group[c].shift(1).notnull(),
         (df[c] - group[c].shift(1)) / group[c].shift(1),
         0.0
     )
-    df["Volatility"] = df.groupby("CompanyId")["ReturnPct"].rolling(vol_window, min_periods=1).std().reset_index(0, drop=True)
+    df["Volatility"] = group["ReturnPct"].rolling(vol_window, min_periods=1).std().reset_index(0, drop=True)
 
     # Compute per-company median volatility
-    df["Volatility_Median"] = df.groupby("CompanyId")["Volatility"].transform("median")
+    df["Volatility_Median"] = group["Volatility"].transform("median")
     df["LowVolatility"] = np.where(df["Volatility"].notnull(), df["Volatility"] < df["Volatility_Median"], False)
     df["HighVolatility"] = np.where(df["Volatility"].notnull(), df["Volatility"] > df["Volatility_Median"], False)
 
@@ -434,7 +441,7 @@ def add_trend_filters_optimized(df, timeframe="Daily", user: int = 1):
     df["MomentumUp"] = df["ROC"] > roc_thresh
     df["MomentumDown"] = df["ROC"] < -roc_thresh
 
-    # Confirmed trends (relaxed to 2/3 conditions)
+    # Confirmed trends
     df["ConfirmedUpTrend"] = (df["UpTrend_MA"].astype(int) + 
                             df["UpTrend_Return"].astype(int) + 
                             df["MomentumUp"].astype(int)) >= 2
@@ -568,8 +575,9 @@ def finalize_signals_optimized(df, tf, tf_window=5, use_fundamentals=True, user:
     df['Return'] = np.where(prev_close.notna() & (prev_close != 0), (df['Close'] / prev_close - 1), 0.0)
 
     # Rolling stats (last 10 rows)
-    df['AvgReturn'] = df.groupby('CompanyId')['Return'].rolling(10, min_periods=1).mean().reset_index(0, drop=True)
-    df['Volatility'] = df.groupby('CompanyId')['Return'].rolling(10, min_periods=1).std().fillna(1e-8).reset_index(0, drop=True)
+    group = df.groupby('CompanyId')
+    df['AvgReturn'] = group['Return'].rolling(10, min_periods=1).mean().reset_index(0, drop=True)
+    df['Volatility'] = group['Return'].rolling(10, min_periods=1).std().fillna(1e-8).reset_index(0, drop=True)
     df['MomentumZ'] = np.where(df['Volatility'] != 0, (df['Return'] - df['AvgReturn']) / df['Volatility'], 0.0)
 
     # Per-company momentum thresholds
@@ -616,7 +624,7 @@ def finalize_signals_optimized(df, tf, tf_window=5, use_fundamentals=True, user:
     df = df.drop(['BuyCount', 'SellCount'], axis=1)
     
     # Filter consecutive Buy/Sell
-    df['PrevAction'] = df.groupby('CompanyId')['CandidateAction'].shift(1)
+    df['PrevAction'] = group['CandidateAction'].shift(1)
     df['Action'] = np.where(
         (df['CandidateAction'] == df['PrevAction']) & df['CandidateAction'].isin(['Buy', 'Sell']),
         'Hold',
@@ -625,7 +633,7 @@ def finalize_signals_optimized(df, tf, tf_window=5, use_fundamentals=True, user:
     df = df.drop('PrevAction', axis=1)
 
     # TomorrowAction
-    df['TomorrowAction'] = df.groupby('CompanyId')['Action'].shift(-1)
+    df['TomorrowAction'] = group['Action'].shift(-1)
     df['TomorrowActionSource'] = np.where(
         df['TomorrowAction'].isin(['Buy', 'Sell']),
         'NextAction(filtered)',
@@ -681,8 +689,8 @@ def finalize_signals_optimized(df, tf, tf_window=5, use_fundamentals=True, user:
 
         # Signal duration (bounded window)
         max_lag = max(10, tf_window)
-        df['change'] = (df['Action'] != df.groupby('CompanyId')['Action'].shift(1)).astype(int)
-        df['SignalDuration'] = df.groupby('CompanyId')['change'].rolling(2 * max_lag + 1, min_periods=1, center=True).sum().reset_index(0, drop=True)
+        df['change'] = (df['Action'] != group['Action'].shift(1)).astype(int)
+        df['SignalDuration'] = group['change'].rolling(2 * max_lag + 1, min_periods=1, center=True).sum().reset_index(0, drop=True)
         df = df.drop('change', axis=1)
 
         df['ValidAction'] = df['Action'].isin(['Buy', 'Sell'])

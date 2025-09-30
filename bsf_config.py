@@ -2,12 +2,6 @@ CONFIG = {
     # -------------------------
     # Default config (baseline)
     # -------------------------
-    "timeframe_map": {
-        "Daily": 1,   # daily timeframe = 1 day
-        "Short": 3,   # short swing = 3 days
-        "Swing": 5,   # medium swing = 5 days
-        "Long": 10,   # long-term swing = 10 days
-    },
 
     # Columns we keep for writing signals (not used yet)
     "signal_keep_cols": [
@@ -17,11 +11,20 @@ CONFIG = {
         "ActionConfidenceNorm","BullishStrengthHybrid","BearishStrengthHybrid","SignalDuration","PatternAction",
         "CandleAction","UpTrend_Return","CandidateAction","Action","TomorrowAction","TimeFrame"
     ],
+
+    
     "default": {
+        "timeframe_map": {
+            "Daily": 1,   # daily timeframe = 1 day
+            "Short": 3,   # short swing = 3 days
+            "Swing": 5,   # medium swing = 5 days
+            "Long": 10,   # long-term swing = 10 days
+        },
+
         "phases": {
-            "phase1": {"topN": 20},  # top N stocks to select in phase1
-            "phase2": {"topN": 10},  # top N for phase2
-            "phase3": {"topN": 5},   # top N for phase3
+            "phase1": {"topN": 50},  # top N stocks to select in phase1
+            "phase2": {"topN": 20},  # top N for phase2
+            "phase3": {"topN": 10},   # top N for phase3
         },
 
         "profiles": {
@@ -121,7 +124,7 @@ CONFIG = {
         },
 
         "fundamental_weights": {
-            "valuation": 0.3,
+            "valuation": 0.2,
             "profitability": 0.3,
             "DebtLiquidity": 0.2,
             "Growth": 0.2,
@@ -134,17 +137,22 @@ CONFIG = {
     # These overrides customize candlestick thresholds, topN selection, profiles,
     # and momentum/penny stock adjustments per user strategy.
     "user1": {
+       "timeframe_map": {
+            "Daily": 1,   # daily timeframe = 1 day
+            "Short": 3,   # short swing = 3 days
+        },
         "candle_params": {
             "doji_base": 0.025,   # ↑ Increased from 0.01 to be more sensitive to Doji patterns
             "doji_max": 0.09,     # ↑ Increased max proportion from 0.08 to allow more Doji detection
             "long_body_base": 0.4  # ↑ Increased from 0.35 to prefer longer bodies for stronger bullish/bearish signals
         },
-        "phases": {
-            "phase1": {"topN": 25}  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
-        }
     },
     
     "user2": {
+       "timeframe_map": {
+            "Swing": 5,   # medium swing = 5 days
+            "Long": 10,   # long-term swing = 10 days
+        },
         "profiles": {
             "Swing": {  # Override the Swing profile
                 "ma": 7,          # ↑ Increased moving average window from 5 to smooth more
@@ -153,6 +161,11 @@ CONFIG = {
                 "roc_thresh": 0.025, # ↑ Increased rate-of-change threshold slightly to filter noise
                 "slope_horizon": 5   # same as default; trend horizon unchanged
             }
+        },
+        "phases": {
+            "phase1": {"topN": 20},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+            "phase2": {"topN": 10},  # top N for phase2
+            "phase3": {"topN": 3},   # top N for phase3
         },
         "candle_params": {
             "doji_thresh": 0.09   # ↑ Increased Doji detection threshold from 0.08 to be more lenient
@@ -170,6 +183,9 @@ CONFIG = {
     },
     
     "user3": {
+        "timeframe_map": {
+            "Daily": 1,   # daily timeframe = 1 day
+        },
         "profiles": {
             "Short": {
                 "ma": 3,            # ↑ Slightly longer MA than default 2 to reduce noise
@@ -185,6 +201,11 @@ CONFIG = {
                 "roc_thresh": 0.02, # same as default
                 "slope_horizon": 10 # same as default
             }
+        },
+           "phases": {
+                "phase1": {"topN": 15},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+                "phase2": {"topN": 5},  # top N for phase2
+                "phase3": {"topN": 2},   # top N for phase3
         },
         "candle_params": {
             "hammer_base": 0.18,    # ↑ More sensitive to Hammer candles than default 0.15
