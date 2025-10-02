@@ -67,7 +67,7 @@ def select_best_model(metrics_dict):
     return best_name, scores
 
 
-def phase_1(spark, user, df_all, df_last, top_n=100):
+def phase_1(spark, profile, df_all, df_last ,  top_n=100):
     # -----------------------------
     # Filter only Buy actions from last-row DF
     # -----------------------------
@@ -131,7 +131,7 @@ def phase_1(spark, user, df_all, df_last, top_n=100):
     # List of timeframes
     # -----------------------------
     #timeframes = ["Short", "Swing", "Long", "Daily"]
-    timeframes = list(load_settings(str(user))["timeframe_map"].keys()) # → ["Daily", "Short", "Swing", "Long"]
+    timeframes = list(load_settings(str(profile))["timeframe_map"].keys()) # → ["Daily", "Short", "Swing", "Long"]
 
     # -----------------------------
     # Dictionaries to store per-timeframe DataFrames
@@ -153,7 +153,7 @@ def phase_1(spark, user, df_all, df_last, top_n=100):
     print(f"     ✅ Stage 1 completed: Top {top_n} candidates selected per timeframe")
     return timeframe_dfs_all, timeframe_dfs
 
-def phase_2(spark, user, timeframe_dfs_all, top_n_phase2=20):
+def phase_2(spark, profile, timeframe_dfs_all,  top_n_phase2=20):
     
     # -----------------------------
     # Parameters
@@ -414,7 +414,7 @@ def infer_season_length(ts, max_lag=30, threshold=0.3):
     m = int(peaks[0])
     return m
 
-def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
+def phase_3(spark, profile, phase2_topN_dfs, top_n_final=10):
     
     # -----------------------------
     # Parameters
@@ -425,14 +425,16 @@ def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
     epsilon = 1e-6
     ml_weight = 0.6
     sarimax_weight = 0.4
-    
+    '''
     forecast_steps_map = {
         "Daily": 1,
         "Short": 3,
         "Swing": 5,
         "Long": 10
     }
-
+    #timeframes = list(load_settings(str(profile))["timeframe_map"].keys()) # → ["Daily", "Short", "Swing", "Long"]
+    '''
+    timeframes_items = load_settings(str(profile))["timeframe_map"]
     # -----------------------------
     # Phase 3: Loop over companies per timeframe
     # -----------------------------
@@ -443,7 +445,7 @@ def phase_3(spark, user, phase2_topN_dfs, top_n_final=10):
     
         # Collect companies
         companies = sdf_tf.select("CompanyId").distinct().rdd.flatMap(lambda x: x).collect()
-        forecast_horizon = forecast_steps_map.get(tf, 1)
+        forecast_horizon = timeframes_items.get(tf, 1)
         for cid in companies:
             # Filter Spark DF once, convert to Pandas
             df_c = sdf_tf.filter(F.col("CompanyId") == cid).orderBy("StockDate").toPandas()

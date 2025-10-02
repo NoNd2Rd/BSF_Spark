@@ -1,17 +1,16 @@
 from copy import deepcopy
 from bsf_config import CONFIG
 
-def load_settings(user: int = 1):
-    """Load settings, merging defaults with optional user overrides.
-       For `timeframe_map`, user overrides REPLACE the whole dict
+def load_settings(profile: str = "default" ):
+    """Load settings, merging defaults with optional profile overrides.
+       For `timeframe_map`, profile overrides REPLACE the whole dict
        instead of merging.
     """
     default_settings = deepcopy(CONFIG["default"])
     settings = deepcopy(default_settings)
-    user_key = f"user{user}"
 
-    if user_key and user_key in CONFIG:
-        overrides = CONFIG[user_key]
+    if profile and profile in CONFIG:
+        overrides = CONFIG[profile]
 
         def merge(base, update, path=""):
             for k, v in update.items():
@@ -20,7 +19,7 @@ def load_settings(user: int = 1):
                 # Special case: timeframe_map is replace, not merge
                 if k == "timeframe_map":
                     old_value = base.get(k, "<not in default>")
-                    #print(f"Override: {current_path}: default={old_value}, user={v}")
+                    #print(f"Override: {current_path}: default={old_value}, profile={v}")
                     base[k] = deepcopy(v)
                     continue
 
@@ -28,7 +27,7 @@ def load_settings(user: int = 1):
                     merge(base[k], v, current_path)
                 else:
                     old_value = base.get(k, "<not in default>")
-                    #print(f"Override: {current_path}: default={old_value}, user={v}")
+                    #print(f"Override: {current_path}: default={old_value}, profile={v}")
                     base[k] = deepcopy(v)
 
         merge(settings, overrides)

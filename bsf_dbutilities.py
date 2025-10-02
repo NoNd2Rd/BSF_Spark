@@ -28,9 +28,8 @@ class DBUtils:
         
     def get_users(self, engine):
         """Return a list of user IDs from aspnetuser."""
-        pdf_users = pd.read_sql("SELECT UserId FROM aspnetuser where MaxPortfolioDlrs>200", engine)
-        #user_keys = pdf_users["UserId"].tolist()
-        return pdf_users["UserId"].tolist()
+        pdf_users = pd.read_sql("SELECT UserId, TemplateProfile, UserName FROM aspnetuser where   AutoCreateTemplate is True ", engine)
+        return pdf_users.to_dict(orient="records") 
 
 
     def get_table_stats(self, table_name: str) -> dict:
@@ -428,9 +427,10 @@ class DBUtils:
         """
         print(f"      📁 ZORDER on StockDate entire table")   
         self.spark.sql(query)
+
         print("      ✅ OPTIMIZE/ZORDER Completed on StockDate: bsf.companystockhistory")
 
-    def create_bsf(self, engine, user, df_dict):
+    def create_bsf(self, engine, user, username, profile, df_dict):
         
         # -----------------------------
         # Optional: show counts
@@ -487,7 +487,7 @@ class DBUtils:
                 "IndustryId": 1,
                 "MarketSectorId": 1,
                 "ParentTemplateId": None,
-                "Name": "BSF Automatic Build - PySpark",
+                "Name": f"BSF Automatic Build - for {profile.capitalize()} account",
                 "Description": f"ML generated template for timeframe: {tf}",
                 "ScreenImage": None,
                 "GenerateStartDate": date.today() + timedelta(days=1),
