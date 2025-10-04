@@ -22,7 +22,9 @@ from delta.tables import DeltaTable
 from sqlalchemy import text
 from pyspark.sql.window import Window
 
-
+from delta.tables import DeltaTable
+from pyspark.sql import functions as F
+from pyspark.sql.types import StructType, LongType, StringType, DateType
 
 class DBUtils:
     def __init__(self, spark, ingest_ts):
@@ -185,9 +187,94 @@ class DBUtils:
         if not db_found:
             print(f"    ❗ Database Name: {db_name} was not found")
             
-       
-
+    from delta.tables import DeltaTable
+    import pyspark.sql.functions as F
+    def hive_table_exists(self, table_name: str) -> bool:
+        try:
+            self.spark.table(table_name)  # checks catalog
+            return True
+        except AnalysisException:
+            return False
+        
     def write_delta_merge(self, sdf, table_name, merge_keys, partition_cols=None):
+
+        if self.hive_table_exists(table_name):
+
+            target = DeltaTable.forName(self.spark, table_name)
+            target_schema = target.toDF().schema
+    
+            # Cast merge keys to match target types
+            for k in merge_keys:
+                target_type = [f.dataType for f in target_schema if f.name == k][0]
+                sdf = sdf.withColumn(k, F.col(k).cast(target_type))
+    
+            # Deduplicate source on merge keys
+            #sdf = sdf.dropDuplicates(merge_keys)
+    
+            # Merge condition
+            cond = " AND ".join([f"t.{k} = s.{k}" for k in merge_keys])
+    
+            # Build update and insert dictionaries with Column objects
+            update_set = {c: F.col(f"s.{c}") for c in sdf.columns}
+            insert_vals = {c: F.col(f"s.{c}") for c in sdf.columns}
+    
+            # Perform merge
+            target.alias("t") \
+                  .merge(sdf.alias("s"), cond) \
+                  .whenMatchedUpdate(set=update_set) \
+                  .whenNotMatchedInsert(values=insert_vals) \
+                  .execute()
+        else:
+            sdf.write.format("delta").mode("overwrite").saveAsTable(table_name)
+ 
+
+    def write_delta_merge_bad(self, sdf, table_name, merge_keys, partition_cols=None):
+        """
+        Always merge sdf into Delta table using merge keys.
+        Ensures merge keys are cast to the target table column types to prevent duplicate rows.
+        Supports optional partitioning for table creation.
+        """
+
+
+        if DeltaTable.isDeltaTable(self.spark, table_name):
+            # Table exists → merge normally
+            target = DeltaTable.forName(self.spark, table_name)
+            target_schema = target.toDF().schema
+            print(target_schema)
+            # Cast merge keys in source to match target types
+            for k in merge_keys:
+                target_type = [f.dataType for f in target_schema if f.name == k][0]
+                sdf = sdf.withColumn(k, F.col(k).cast(target_type))
+    
+            # Build merge condition
+            cond = " AND ".join([f"t.{k} = s.{k}" for k in merge_keys])
+    
+            # Collect all columns from source
+            src_cols = sdf.columns
+    
+            # Build update and insert dictionaries
+            update_set = {c: f"s.{c}" for c in src_cols}
+            insert_vals = {c: f"s.{c}" for c in src_cols}
+            print(sdf)
+            sdf.printSchema()
+            # Perform merge
+            target.alias("t") \
+                  .merge(sdf.alias("s"), cond) \
+                  .whenMatchedUpdateAll(set=update_set) \
+                  .whenNotMatchedInsertAll(values=insert_vals) \
+                  .execute()
+    
+        else:
+            print(sdf)
+            sdf.printSchema()
+            # Table does not exist yet → write first time
+            writer = sdf.write.format("delta").mode("append")
+            if partition_cols:
+                writer = writer.partitionBy(*partition_cols)
+            writer.saveAsTable(table_name)
+           
+
+    def write_delta_merge_old(self, sdf, table_name, merge_keys, partition_cols=None):
         """
         Always merge sdf into Delta table using merge keys.
         Supports optional partitioning for table creation.
