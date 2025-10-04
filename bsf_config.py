@@ -23,8 +23,8 @@ CONFIG = {
 
         "phases": {
             "phase1": {"topN": 50},  # top N stocks to select in phase1
-            "phase2": {"topN": 20},  # top N for phase2
-            "phase3": {"topN": 10},   # top N for phase3
+            "phase2": {"topN": 25},  # top N for phase2
+            "phase3": {"topN": 5},   # top N for phase3
         },
 
         "profiles": {
@@ -136,10 +136,15 @@ CONFIG = {
     # -------------------------
     # These overrides customize candlestick thresholds, topN selection, profiles,
     # and momentum/penny stock adjustments per user strategy.
-    "user1": {
+    "tier1": {
        "timeframe_map": {
             "Daily": 1,   # daily timeframe = 1 day
             "Short": 3,   # short swing = 3 days
+        },
+        "phases": {
+            "phase1": {"topN": 75},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+            "phase2": {"topN": 25},  # top N for phase2
+            "phase3": {"topN": 5},   # top N for phase3
         },
         "candle_params": {
             "doji_base": 0.025,   # ↑ Increased from 0.01 to be more sensitive to Doji patterns
@@ -148,7 +153,7 @@ CONFIG = {
         },
     },
     
-    "user2": {
+    "tier2": {
        "timeframe_map": {
             "Swing": 5,   # medium swing = 5 days
             "Long": 10,   # long-term swing = 10 days
@@ -160,12 +165,19 @@ CONFIG = {
                 "vol": 5,         # same as default; volatility window unchanged
                 "roc_thresh": 0.025, # ↑ Increased rate-of-change threshold slightly to filter noise
                 "slope_horizon": 5   # same as default; trend horizon unchanged
+            },
+            "Long": {
+                "ma": 12,           # ↑ Increased MA from 10 for smoother long-term trend
+                "ret": 12,          # ↑ Longer return window to capture more pronounced moves
+                "vol": 10,          # same as default
+                "roc_thresh": 0.02, # same as default
+                "slope_horizon": 10 # same as default
             }
         },
         "phases": {
-            "phase1": {"topN": 20},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
-            "phase2": {"topN": 10},  # top N for phase2
-            "phase3": {"topN": 3},   # top N for phase3
+            "phase1": {"topN": 75},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+            "phase2": {"topN": 25},  # top N for phase2
+            "phase3": {"topN": 5},   # top N for phase3
         },
         "candle_params": {
             "doji_thresh": 0.09   # ↑ Increased Doji detection threshold from 0.08 to be more lenient
@@ -182,30 +194,14 @@ CONFIG = {
         }
     },
     
-    "user3": {
+    "free": {
         "timeframe_map": {
             "Daily": 1,   # daily timeframe = 1 day
         },
-        "profiles": {
-            "Short": {
-                "ma": 3,            # ↑ Slightly longer MA than default 2 to reduce noise
-                "ret": 1.5,         # ↑ Slightly higher return window to capture stronger short-term moves
-                "vol": 3,           # same as default
-                "roc_thresh": 0.02, # same as default
-                "slope_horizon": 1  # same as default
-            },
-            "Long": {
-                "ma": 12,           # ↑ Increased MA from 10 for smoother long-term trend
-                "ret": 12,          # ↑ Longer return window to capture more pronounced moves
-                "vol": 10,          # same as default
-                "roc_thresh": 0.02, # same as default
-                "slope_horizon": 10 # same as default
-            }
-        },
            "phases": {
-                "phase1": {"topN": 15},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
-                "phase2": {"topN": 5},  # top N for phase2
-                "phase3": {"topN": 2},   # top N for phase3
+                "phase1": {"topN": 30},  # ↑ Increased topN from 20 to capture more candidate stocks for aggressive strategy
+                "phase2": {"topN": 10},  # top N for phase2
+                "phase3": {"topN": 5},   # top N for phase3
         },
         "candle_params": {
             "hammer_base": 0.18,    # ↑ More sensitive to Hammer candles than default 0.15
@@ -221,7 +217,7 @@ CONFIG = {
         }
     },
     
-    "user4": {
+    "profile3": {
         "phases": {
             "phase2": {"topN": 12},  # ↑ Increase from 10 to allow more candidates in phase2
             "phase3": {"topN": 6}    # ↑ Increase from 5 to allow more candidates in phase3

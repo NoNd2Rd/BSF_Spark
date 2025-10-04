@@ -7,16 +7,16 @@ import unicodedata
 from functools import reduce
 from operator import itemgetter
 
-def generate_signal_columns_optimized(df, timeframe="Short", user: int = 1):
+def generate_signal_columns_optimized(df, timeframe="Short", profile: str = "default"):
     """
     Optimized version: Use aggregate-then-merge for last_close and momentum.
     """
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    if profile is None:
+        raise ValueError("profile ID cannot be None")
     if df.empty or not all(col in df.columns for col in ["CompanyId", "StockDate", "Close"]):
         raise ValueError("Input DataFrame must contain CompanyId, StockDate, and Close columns")
 
-    settings = load_settings(str(user))["signals"]
+    settings = load_settings(str(profile))["signals"]
     tf_settings = settings["timeframes"].get(timeframe, settings["timeframes"]["Daily"])
     
     if not all(key in tf_settings for key in ["momentum", "buy", "sell"]):
@@ -65,13 +65,13 @@ def generate_signal_columns_optimized(df, timeframe="Short", user: int = 1):
     }
 
     if not candle_columns["Buy"] and not candle_columns["Sell"]:
-        print(f"Warning: No valid candle columns found for timeframe {timeframe} and user {user}")
+        print(f"Warning: No valid candle columns found for timeframe {timeframe} and profile {profile}")
     if not trend_columns["Bullish"] and not trend_columns["Bearish"]:
-        print(f"Warning: No valid trend columns found for timeframe {timeframe} and user {user}")
+        print(f"Warning: No valid trend columns found for timeframe {timeframe} and profile {profile}")
 
     return candle_columns, trend_columns, momentum_factor_base, momentum_dict 
 
-def get_candle_params_optimized(df: pd.DataFrame, user: int = 1, close_col: str = "Close") -> pd.DataFrame:
+def get_candle_params_optimized(df: pd.DataFrame, profile: str = "default", close_col: str = "Close") -> pd.DataFrame:
     """
     Optimized version: Collect all new columns in a dict and concat once at the end.
     """
@@ -79,10 +79,10 @@ def get_candle_params_optimized(df: pd.DataFrame, user: int = 1, close_col: str 
     missing_cols = [c for c in required_cols if c not in df.columns]
     if missing_cols:
         raise ValueError(f"Input DataFrame missing columns: {missing_cols}")
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    if profile is None:
+        raise ValueError("profile ID cannot be None")
 
-    user_settings = load_settings(user).get("candle_params", {
+    user_settings = load_settings(profile).get("candle_params", {
         "doji_base": 0.1, "doji_scale": 0.05, "doji_min": 0.05, "doji_max": 0.2,
         "long_body_base": 0.7, "long_body_scale": 0.1, "long_body_min": 0.6, "long_body_max": 0.9,
         "small_body_base": 0.3, "small_body_scale": 0.05, "small_body_min": 0.2, "small_body_max": 0.4,
@@ -125,7 +125,7 @@ def get_candle_params_optimized(df: pd.DataFrame, user: int = 1, close_col: str 
     new_df = pd.DataFrame(new_cols, index=df.index)
     return pd.concat([df, new_df], axis=1)
 
-def add_candle_patterns_optimized(df, tf_window=5, user: int = 1, 
+def add_candle_patterns_optimized(df, tf_window=5, profile: str = "default", 
                             open_col="Open", high_col="High", low_col="Low", 
                             close_col="Close", volume_col="Volume"):
     """
@@ -137,14 +137,14 @@ def add_candle_patterns_optimized(df, tf_window=5, user: int = 1,
         raise ValueError(f"Input DataFrame missing columns: {missing_cols}")
     if tf_window < 1:
         raise ValueError("tf_window must be positive")
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    if profile is None:
+        raise ValueError("profile ID cannot be None")
 
     df = df.sort_values(["CompanyId", "StockDate"])
 
     o, h, l, c, v = open_col, high_col, low_col, close_col, volume_col
 
-    df = get_candle_params_optimized(df, user=user, close_col=close_col)
+    df = get_candle_params_optimized(df, profile=profile, close_col=close_col)
 
     group = df.groupby("CompanyId")
 
@@ -358,19 +358,19 @@ def add_confirmed_signals_optimized(df):
     new_df = pd.DataFrame(new_cols, index=df.index)
     return pd.concat([df, new_df], axis=1)
 
-def add_trend_filters_optimized(df, timeframe="Daily", user: int = 1):
+def add_trend_filters_optimized(df, timeframe="Daily", profile: str = "default"):
     """
     Optimized version: Use groupby.rolling and transform; avoid apply.
     """
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    if profile is None:
+        raise ValueError("profile ID cannot be None")
     if df.empty or not all(col in df.columns for col in ["CompanyId", "StockDate", "Close"]):
         raise ValueError("Input DataFrame must contain CompanyId, StockDate, and Close columns")
 
     c = "Close"
 
     # Load settings
-    settings = load_settings(user)["profiles"]
+    settings = load_settings(profile)["profiles"]
     if timeframe not in settings:
         raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of {list(settings.keys())}")
     params = settings[timeframe]
@@ -447,17 +447,17 @@ def add_trend_filters_optimized(df, timeframe="Daily", user: int = 1):
 
     return df
 
-def add_signal_strength_optimized(df, timeframe="Daily", user: int = 1):
+def add_signal_strength_optimized(df, timeframe="Daily", profile: str = "default"):
     """
     Optimized version: Use pd.Series for sums to avoid if-else overhead; concat if needed.
     """
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    if profile is None:
+        raise ValueError("profile ID cannot be None")
     if df.empty or not all(col in df.columns for col in ["CompanyId", "StockDate"]):
         raise ValueError("Input DataFrame must contain CompanyId and StockDate columns")
 
     # Load settings
-    settings = load_settings(user)["signals"]
+    settings = load_settings(profile)["signals"]
     if timeframe not in settings["timeframes"]:
         raise ValueError(f"Invalid timeframe: {timeframe}. Must be one of {list(settings['timeframes'].keys())}")
     tf_settings = settings["timeframes"][timeframe]
@@ -525,7 +525,7 @@ def add_signal_strength_optimized(df, timeframe="Daily", user: int = 1):
 
     return df
 
-def finalize_signals_optimized(df, tf, tf_window=5, use_fundamentals=True, user: int = 1):
+def finalize_signals_optimized(df, tf, tf_window=5, use_fundamentals=True, profile: str = "default"):
     """
     Fully Pandas-native signal consolidation with per-company aggregates.
     Uses rolling windows, true majority voting, and robust error handling.
@@ -536,14 +536,14 @@ def finalize_signals_optimized(df, tf, tf_window=5, use_fundamentals=True, user:
         tf: Timeframe string (e.g., "Daily")
         tf_window: Integer window for pattern normalization
         use_fundamentals: Boolean to include FundamentalScore
-        user: Integer user ID for settings
+        profile: String profile for settings
     
     Returns:
         Pandas DataFrame with Action, TomorrowAction, ActionConfidenceNorm, SignalStrengthHybrid, etc.
     """
     # Validate inputs
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    if profile is None:
+        raise ValueError("profile ID cannot be None")
     required_cols = ["CompanyId", "StockDate", "Close"]
     if df.empty or not all(col in df.columns for col in required_cols):
         raise ValueError(f"Input DataFrame must contain {required_cols}")
@@ -703,7 +703,7 @@ def finalize_signals_optimized(df, tf, tf_window=5, use_fundamentals=True, user:
 
     return df
 
-def compute_fundamental_score_optimized(df, user: int = 1):
+def compute_fundamental_score_optimized(df, profile: str = "default"):
     """
     Compute normalized fundamental score using per-company aggregates.
     Fully vectorized, minimizes shuffles, handles nulls/outliers.
@@ -711,14 +711,14 @@ def compute_fundamental_score_optimized(df, user: int = 1):
     
     Args:
         df: Pandas DataFrame with CompanyId, PeRatio, PbRatio, ..., ShortIntToFloat
-        user: Integer user ID for settings
+        profile: String profile ID for settings
     
     Returns:
         Pandas DataFrame with FundamentalScore, FundamentalBad, and normalized columns
     """
     # Validate inputs
-    if user is None:
-        raise ValueError("User ID cannot be None")
+    if profile is None:
+        raise ValueError("profile ID cannot be None")
     required_cols = [
         "CompanyId", "PeRatio", "PbRatio", "PegRatio", "ReturnOnEquity",
         "GrossMarginTTM", "NetProfitMarginTTM", "TotalDebtToEquity",
@@ -729,8 +729,8 @@ def compute_fundamental_score_optimized(df, user: int = 1):
     if missing_cols:
         raise ValueError(f"Input DataFrame missing columns: {missing_cols}")
 
-    # Load user settings
-    user_settings = load_settings(user).get("fundamental_weights", {})
+    # Load profile settings
+    user_settings = load_settings(profile).get("fundamental_weights", {})
     weights = {
         "valuation": user_settings.get("valuation", 0.2),
         "profitability": user_settings.get("profitability", 0.3),
@@ -807,7 +807,7 @@ def compute_fundamental_score_optimized(df, user: int = 1):
 
     return df
 
-def add_batch_metadata_optimized(df, timeframe, user: int = 1, ingest_ts=None):
+def add_batch_metadata_optimized(df, timeframe, user: int = 1, profile: str = "default", ingest_ts=None):
     """
     Optimized version: Assign multiple columns at once.
     """
@@ -818,6 +818,7 @@ def add_batch_metadata_optimized(df, timeframe, user: int = 1, ingest_ts=None):
         BatchId=f"{user}_{ingest_ts}",
         IngestedAt=ingest_ts,
         TimeFrame=timeframe,
+        Profile=profile,
         UserId=user
     )
     return df

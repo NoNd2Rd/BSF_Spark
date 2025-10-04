@@ -5,6 +5,9 @@ import math
 import shutil
 from datetime import datetime, date, timedelta
 import requests
+import json
+from bsf_settings import load_settings
+
 
 import pandas as pd
 from pyspark.sql import SparkSession
@@ -28,9 +31,8 @@ class DBUtils:
         
     def get_users(self, engine):
         """Return a list of user IDs from aspnetuser."""
-        pdf_users = pd.read_sql("SELECT UserId FROM aspnetuser where MaxPortfolioDlrs>200", engine)
-        #user_keys = pdf_users["UserId"].tolist()
-        return pdf_users["UserId"].tolist()
+        pdf_users = pd.read_sql("SELECT UserId, TemplateProfile, UserName FROM aspnetuser where   AutoCreateTemplate is True ", engine)
+        return pdf_users.to_dict(orient="records") 
 
 
     def get_table_stats(self, table_name: str) -> dict:
@@ -166,7 +168,6 @@ class DBUtils:
         
     def db_stats(self, db_name: str):
         print(f"    📋 Stats Hive Database: {db_name}")
-
         '''
         # Show all databases in Hive - Using Spark SQL
         self.spark.sql("SHOW DATABASES").show(truncate=False)
@@ -184,150 +185,7 @@ class DBUtils:
         if not db_found:
             print(f"    ❗ Database Name: {db_name} was not found")
             
-
-        
-    def merge_signal_table(
-        self, sdf, table_name, merge_keys, 
-        timeframe_col="TimeFrame",
-        overwrite_partition=False
-        ):
-        """
-        Merge a Spark DataFrame into a Delta table, or overwrite partitions.
-        Simplified for single-node Spark.
-        """
-        #sdf.printSchema()
-        if sdf.rdd.isEmpty():
-            print(f"⚠️ No data to write for table {table_name}. Skipping.")
-            return
-    
-        # Validate merge keys
-        missing_keys = [k for k in merge_keys if k not in sdf.columns]
-        if missing_keys:
-            raise ValueError(f"Merge keys missing in DataFrame: {missing_keys}")
-        from pyspark.sql import functions as F
-        from pyspark.sql.types import IntegerType, StringType
-        
-        sdf = sdf.withColumn(timeframe_col, F.col(timeframe_col).cast(StringType()))    
-        num_rows = sdf.count()
-        print(f"📤 Writing {num_rows:,} rows to Delta table: {table_name}")
-    
-        if self.spark.catalog.tableExists(table_name):
-            if overwrite_partition:
-                # Overwrite partitions (safe on single-node)
-                partitions = sdf.select("UserId", timeframe_col).distinct().collect()
-                replace_conditions = " OR ".join(
-                    [f"(UserId = '{row['UserId']}' AND {timeframe_col} = '{row[timeframe_col]}')" 
-                     for row in partitions]
-                )
-                sdf.write.format("delta") \
-                   .mode("overwrite") \
-                   .option("replaceWhere", replace_conditions) \
-                   .saveAsTable(table_name)
-            else:
-                # Merge (upsert)
-                target = DeltaTable.forName(self.spark, table_name)
-                full_merge_keys = ["UserId", timeframe_col] + merge_keys
-                cond = " AND ".join([f"t.{k} = s.{k}" for k in full_merge_keys])
-                target.alias("t") \
-                      .merge(sdf.alias("s"), cond) \
-                      .whenMatchedUpdateAll() \
-                      .whenNotMatchedInsertAll() \
-                      .execute()
-        else:
-            # First load
-            sdf.write.format("delta") \
-                .mode("overwrite") \
-                .partitionBy("UserId", timeframe_col) \
-                .saveAsTable(table_name)
-    
-        print(f"✅ Finished writing Delta table: {table_name}")
        
-
-    def merge_signal_table_old(
-        self, df, table_name, merge_keys, 
-        company_col="CompanyId", timeframe_col="TimeFrame",
-        target_partition_mb=64, overwrite_partition=False
-        ):
-        """
-        Merge a Pandas DataFrame into a Delta table, or overwrite partitions.
-    
-        Modes:
-          - Merge (default): Upsert rows into existing Delta table.
-          - Overwrite partition: Drop & replace only the partitions in `df`.
-          
-        Strategy:
-          - Physically partition only by `timeframe_col` (fewer, larger partitions).
-          - Use `repartition(N, company_col)` before write to distribute rows evenly.
-          - Target ~64 MB parquet file sizes.
-        """
-    
-        # --- Convert Pandas → Spark ---
-        # not needed all spark now
-        #sdf = self.spark.createDataFrame(df)
-    
-        # --- Estimate DataFrame size and rows ---
-        mem_bytes = df.memory_usage(index=True, deep=True).sum()
-        mem_mb = mem_bytes / (1024 * 1024)
-        total_rows = df.shape[0]
-    
-        # --- Decide partition count ---
-        total_cores = self.spark._jsc.sc().defaultParallelism()
-        target_partitions = max(
-            math.ceil(mem_mb / target_partition_mb),  # ~64 MB chunks
-            total_cores                              # at least 1 per core
-        )
-        target_partitions = min(target_partitions, total_cores * 4)  # cap at 4× cores
-    
-        # Repartition by company (logical balance), but not physical partitioning
-        sdf = sdf.repartition(target_partitions, sdf[company_col])
-    
-        print(
-            f"      📤 Writing to Delta table: {table_name} | "
-            f"            Rows={total_rows:,} | Size={mem_mb:.1f} MB | "
-            f"            Partitions={sdf.rdd.getNumPartitions()} | "
-            f"            Mode={'overwrite_partition' if overwrite_partition else 'merge'}"
-        )
-    
-        # --- Write logic ---
-        if self.spark.catalog.tableExists(table_name):
-            if overwrite_partition:
-                # Extract distinct partitions to overwrite
-                partitions = sdf.select("UserId", timeframe_col).distinct().collect()
-                part_values = [(row["UserId"], row[timeframe_col]) for row in partitions]
-        
-                print(f"      🔄 Overwriting partitions: {part_values}")
-        
-                # Build replaceWhere condition
-                replace_conditions = " OR ".join(
-                    [f"(UserId = {repr(u)} AND {timeframe_col} = {repr(tf)})" for u, tf in part_values]
-                )
-        
-                (
-                    sdf.write.format("delta")
-                       .mode("overwrite")
-                       .option("replaceWhere", replace_conditions)
-                       .saveAsTable(table_name)
-                )
-            else:
-                # Merge (upsert)
-                target = DeltaTable.forName(self.spark, table_name)
-                merge_keys = ["UserId", timeframe_col] + merge_keys  # ensure UserId + timeframe included
-                cond = " AND ".join([f"t.{k} = s.{k}" for k in merge_keys])
-                (
-                    target.alias("t")
-                          .merge(sdf.alias("s"), cond)
-                          .whenMatchedUpdateAll()
-                          .whenNotMatchedInsertAll()
-                          .execute()
-                )
-        else:
-            # First load → physically partition by UserId + TimeFrame
-            (
-                sdf.write.format("delta")
-                    .mode("overwrite")
-                    .partitionBy("UserId", timeframe_col)
-                    .saveAsTable(table_name)
-            )
 
     def write_delta_merge(self, sdf, table_name, merge_keys, partition_cols=None):
         """
@@ -338,10 +196,17 @@ class DBUtils:
             # Table exists → merge normally
             target = DeltaTable.forName(self.spark, table_name)
             cond = " AND ".join([f"t.{k} = s.{k}" for k in merge_keys])
+            # Collect all columns from source
+            src_cols = src_df.columns
+            # Build update set dynamically (exclude merge keys if you don’t want them updated)
+            update_set = {c: f"s.{c}" for c in src_cols}
+            # Build insert values dynamically
+            insert_vals = {c: f"s.{c}" for c in src_cols}
+    
             target.alias("t") \
                   .merge(sdf.alias("s"), cond) \
-                  .whenMatchedUpdateAll() \
-                  .whenNotMatchedInsertAll() \
+                  .whenMatchedUpdateAll(set=update_set) \
+                  .whenNotMatchedInsertAll(values=insert_vals) \
                   .execute()
         else:
             # Table does not exist yet → first write with partitioning
@@ -502,6 +367,18 @@ class DBUtils:
         sdf = sdf.withColumn("CompanyId", F.col("CompanyId").cast(IntegerType()))
         sdf = sdf.withColumn("TimeFrame", F.col("TimeFrame").cast("string"))
         # Columns to keep
+        good_cols = [
+            "UserId", "CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
+            "Doji", "Hammer", "InvertedHammer", "ShootingStar", "BullishEngulfing", "BearishEngulfing", "PiercingLine",
+            "DarkCloudCover", "MorningStar", "EveningStar", "ThreeWhiteSoldiers", "ThreeBlackCrows", "TweezerTop",
+            "TweezerBottom", "InsideBar", "OutsideBar", "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp",
+            "MomentumDown", "ConfirmedUpTrend", "ConfirmedDownTrend", "RecentReturn", "UpTrend_Return",
+            "DownTrend_Return", "Volatility", "LowVolatility", "HighVolatility", "ROC", "MomentumZ", "SignalStrength",
+            "SignalStrengthHybrid", "ActionConfidence", "BullishStrengthHybrid", "BearishStrengthHybrid",
+            "SignalDuration", "ValidAction", "HasValidSignal", "MomentumAction", "PatternAction", "CandleAction",
+            "CandidateAction", "Action", "TomorrowAction", "TomorrowActionSource", "BatchId", "IngestedAt", "TimeFrame"
+        ]
+        
         keep_cols = [
             "UserId","CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
             "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp", "MomentumDown",
@@ -521,57 +398,18 @@ class DBUtils:
         )).filter(F.col("row_num") == 1).drop("row_num")
     
         # Merge main table
-        #self.merge_signal_table(sdf, "bsf.history_signals", merge_keys=["UserId", "CompanyId", "StockDate", "TimeFrame"])
         merge_keys = ["UserId", "CompanyId", "StockDate", "TimeFrame"]
         partition_cols = ["UserId", "TimeFrame"]
         table = "bsf.history_signals"
         self.write_delta_merge(sdf, table, merge_keys,partition_cols)    
         # Merge last row table
-        #self.merge_signal_table(latest_sdf, "bsf.history_signals_last", merge_keys=["UserId", "CompanyId", "StockDate", "TimeFrame"], overwrite_partition=True)
         merge_keys = ["UserId", "CompanyId", "StockDate", "TimeFrame"]
         partition_cols = ["UserId", "TimeFrame"]
         table = "bsf.history_signals_last"
         self.write_delta_merge(sdf, table, merge_keys,partition_cols)   
 
         
-    def write_signals_pdf(self, history_df=None, timeframe=None):
-        if history_df is None or len(history_df) == 0:
-            print("⚠️ No history data provided. Skipping write.")
-            return
-    
-        # -------------------------------
-        # Columns to keep for research
-        # -------------------------------
-        good_cols = [
-            "UserId", "CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
-            "Doji", "Hammer", "InvertedHammer", "ShootingStar", "BullishEngulfing", "BearishEngulfing", "PiercingLine",
-            "DarkCloudCover", "MorningStar", "EveningStar", "ThreeWhiteSoldiers", "ThreeBlackCrows", "TweezerTop",
-            "TweezerBottom", "InsideBar", "OutsideBar", "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp",
-            "MomentumDown", "ConfirmedUpTrend", "ConfirmedDownTrend", "RecentReturn", "UpTrend_Return",
-            "DownTrend_Return", "Volatility", "LowVolatility", "HighVolatility", "ROC", "MomentumZ", "SignalStrength",
-            "SignalStrengthHybrid", "ActionConfidence", "BullishStrengthHybrid", "BearishStrengthHybrid",
-            "SignalDuration", "ValidAction", "HasValidSignal", "MomentumAction", "PatternAction", "CandleAction",
-            "CandidateAction", "Action", "TomorrowAction", "TomorrowActionSource", "BatchId", "IngestedAt", "TimeFrame"
-        ]
-        keep_cols = [
-            "UserId","CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
-            "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA", "MomentumUp",
-            "MomentumDown", "ConfirmedUpTrend", "ConfirmedDownTrend", "Volatility", "LowVolatility", "HighVolatility", "SignalStrength",
-            "SignalStrengthHybrid", "ActionConfidence", "ActionConfidenceNorm", "BullishStrengthHybrid", "BearishStrengthHybrid",
-            "SignalDuration", "PatternAction", "CandleAction","UpTrend_Return",
-            "CandidateAction", "Action", "TomorrowAction", "TimeFrame"
-        ]
-
-        latest_df = history_df.groupby("CompanyId").tail(1).copy()
-
-        #self.merge_signal_table(history_df, "bsf.history_signals_allcol", ["CompanyId", "StockDate", "TimeFrame"])
-        self.merge_signal_table(history_df[keep_cols], "bsf.history_signals", ["UserId", "CompanyId", "StockDate", "TimeFrame"])
-       
-        self.merge_signal_table(latest_df[keep_cols], "bsf.history_signals_last", ["UserId", "CompanyId", "StockDate", "TimeFrame"],overwrite_partition=True)
-        #self.merge_signal_table(latest_df[good_cols], "bsf.history_signals_last_good", ["CompanyId", "StockDate", "TimeFrame"],overwrite_partition=True)
-        #self.merge_signal_table(latest_df, "bsf.history_signals_last_all", ["CompanyId", "StockDate", "TimeFrame"],overwrite_partition=True)
-
-    
+  
     def write_candidates(self, df_phase3_enriched, df_topN_companies):
 
 
@@ -599,10 +437,12 @@ class DBUtils:
         """
         print(f"      📁 ZORDER on StockDate entire table")   
         self.spark.sql(query)
+
         print("      ✅ OPTIMIZE/ZORDER Completed on StockDate: bsf.companystockhistory")
 
-    def create_bsf(self, engine, user, df_dict):
-        
+    def create_bsf(self, engine, user, username, profile, df_dict):
+        settings = load_settings(profile)
+        settings_json = json.dumps(settings)
         # -----------------------------
         # Optional: show counts
         # -----------------------------
@@ -610,22 +450,12 @@ class DBUtils:
             # Outer loop: per timeframe
             print(f"     ✅ Processing timeframe: {tf}")
             
-            if tf == "Daily":
-                generate_end_date = date.today() + timedelta(days=3)
-                days_to_hold = 1
-                seasonal_s_m = 3 #can't be 1
-            elif tf == "Short":
-                generate_end_date = date.today() + timedelta(days=7)
-                days_to_hold = 3
-                seasonal_s_m = 3
-            elif tf == "Swing":
-                generate_end_date = date.today() + timedelta(days=11)
-                days_to_hold = 5
-                seasonal_s_m = 5
-            else:
-                generate_end_date = date.today() + timedelta(days=21)
-                days_to_hold = 10
-                seasonal_s_m = 10
+            days_to_hold = settings["timeframe_map"].get(tf, 1)
+            seasonal_s_m = days_to_hold +1 # Can't be 1 
+            
+            generate_start_date = date.today() + timedelta(days=1)
+            generate_end_date = date.today() + timedelta(days=days_to_hold * 3 + 1)
+            
             sql = '''
                 INSERT INTO template (
                     UserId, IndustryId, MarketSectorId, ParentTemplateId, Name, Description, ScreenImage,
@@ -637,7 +467,7 @@ class DBUtils:
                     NbrOfClusters, TrainDays, TestDays, SeriesLength, WindowSize, Confidence, DaysToForecast,
                     IsAdaptive, ShouldMaintain, ShouldStabilize, OptimizeOrder, OrderAr, OrderI, OrderMa,
                     SeasonalP, SeasonalD, SeasonalQ, SeasonalS, ExperimentRunMinutes, PctToTrain, NbrOfCrossfolds,
-                    SelectR2Score, SelectLossFnScore, SelectL1Loss, SelectL2Loss, SelectRMSLoss,
+                    SelectR2Score, SelectLossFnScore, SelectL1Loss, SelectL2Loss, SelectRMSLoss, PysparkConfig,
                     Status, Active, CreateDate, ChangeDate, ModifiedByProcess, ModifiedByUserId, SoftDelete
                 ) VALUES (
                     :UserId, :IndustryId, :MarketSectorId, :ParentTemplateId, :Name, :Description, :ScreenImage,
@@ -649,7 +479,7 @@ class DBUtils:
                     :NbrOfClusters, :TrainDays, :TestDays, :SeriesLength, :WindowSize, :Confidence, :DaysToForecast,
                     :IsAdaptive, :ShouldMaintain, :ShouldStabilize, :OptimizeOrder, :OrderAr, :OrderI, :OrderMa,
                     :SeasonalP, :SeasonalD, :SeasonalQ, :SeasonalS, :ExperimentRunMinutes, :PctToTrain, :NbrOfCrossfolds,
-                    :SelectR2Score, :SelectLossFnScore, :SelectL1Loss, :SelectL2Loss, :SelectRMSLoss,
+                    :SelectR2Score, :SelectLossFnScore, :SelectL1Loss, :SelectL2Loss, :SelectRMSLoss, :PysparkConfig,
                     :Status, :Active, :CreateDate, :ChangeDate, :ModifiedByProcess, :ModifiedByUserId, :SoftDelete
                 )
                 '''       
@@ -658,10 +488,10 @@ class DBUtils:
                 "IndustryId": 1,
                 "MarketSectorId": 1,
                 "ParentTemplateId": None,
-                "Name": "BSF Automatic Build - PySpark",
+                "Name": f"BSF Automatic {tf} Build - for {profile.capitalize()} account",
                 "Description": f"ML generated template for timeframe: {tf}",
                 "ScreenImage": None,
-                "GenerateStartDate": date.today() + timedelta(days=1),
+                "GenerateStartDate": generate_start_date,
                 "GenerateEndDate": generate_end_date,
                 "DaysToHold": days_to_hold,
                 "EmailPortfolio": 1,
@@ -709,6 +539,7 @@ class DBUtils:
                 "SelectL1Loss": 0,
                 "SelectL2Loss": 0,
                 "SelectRMSLoss": 1,
+                "PysparkConfig": settings_json,
                 "Status": 1,
                 "Active": 1,
                 "CreateDate": datetime.now(),
@@ -985,16 +816,6 @@ class DBUtils:
                     MlAnalysisId=ml_analysis_id,
                     ApiResult=result
                 ))
-        '''
-        # Convert results back to a PySpark DataFrame
-        sdf_api_results = self.spark.createDataFrame(results)
-        #sdf_api_results.show(truncate=False)
-        #output_path = self.conf.get("spark.sql.filesource.path", "/srv/lakehouse/nond2rd")
-        output_path = "/srv/lakehouse/nond2rd"
-        sdf_api_results.toPandas().to_csv(
-            f"{output_path}/{'final_candidates_results'}.csv",
-            index=False
-        )
-        '''
+
         return  
          
