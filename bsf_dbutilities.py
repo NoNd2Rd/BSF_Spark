@@ -5,6 +5,9 @@ import math
 import shutil
 from datetime import datetime, date, timedelta
 import requests
+import json
+from bsf_config import load_settings
+
 
 import pandas as pd
 from pyspark.sql import SparkSession
@@ -431,7 +434,9 @@ class DBUtils:
         print("      ✅ OPTIMIZE/ZORDER Completed on StockDate: bsf.companystockhistory")
 
     def create_bsf(self, engine, user, username, profile, df_dict):
-        
+        settings = load_settings(profile)
+
+        settings_json = json.dumps(template_settings)
         # -----------------------------
         # Optional: show counts
         # -----------------------------
@@ -466,7 +471,7 @@ class DBUtils:
                     NbrOfClusters, TrainDays, TestDays, SeriesLength, WindowSize, Confidence, DaysToForecast,
                     IsAdaptive, ShouldMaintain, ShouldStabilize, OptimizeOrder, OrderAr, OrderI, OrderMa,
                     SeasonalP, SeasonalD, SeasonalQ, SeasonalS, ExperimentRunMinutes, PctToTrain, NbrOfCrossfolds,
-                    SelectR2Score, SelectLossFnScore, SelectL1Loss, SelectL2Loss, SelectRMSLoss,
+                    SelectR2Score, SelectLossFnScore, SelectL1Loss, SelectL2Loss, SelectRMSLoss, PysparkConfig,
                     Status, Active, CreateDate, ChangeDate, ModifiedByProcess, ModifiedByUserId, SoftDelete
                 ) VALUES (
                     :UserId, :IndustryId, :MarketSectorId, :ParentTemplateId, :Name, :Description, :ScreenImage,
@@ -478,7 +483,7 @@ class DBUtils:
                     :NbrOfClusters, :TrainDays, :TestDays, :SeriesLength, :WindowSize, :Confidence, :DaysToForecast,
                     :IsAdaptive, :ShouldMaintain, :ShouldStabilize, :OptimizeOrder, :OrderAr, :OrderI, :OrderMa,
                     :SeasonalP, :SeasonalD, :SeasonalQ, :SeasonalS, :ExperimentRunMinutes, :PctToTrain, :NbrOfCrossfolds,
-                    :SelectR2Score, :SelectLossFnScore, :SelectL1Loss, :SelectL2Loss, :SelectRMSLoss,
+                    :SelectR2Score, :SelectLossFnScore, :SelectL1Loss, :SelectL2Loss, :SelectRMSLoss, :PysparkConfig,
                     :Status, :Active, :CreateDate, :ChangeDate, :ModifiedByProcess, :ModifiedByUserId, :SoftDelete
                 )
                 '''       
@@ -538,6 +543,7 @@ class DBUtils:
                 "SelectL1Loss": 0,
                 "SelectL2Loss": 0,
                 "SelectRMSLoss": 1,
+                "PysparkConfig": settings_json,
                 "Status": 1,
                 "Active": 1,
                 "CreateDate": datetime.now(),

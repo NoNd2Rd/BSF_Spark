@@ -89,7 +89,7 @@ def init_spark(app_name: str = None,
             .config("spark.executor.memoryOverhead", "512m")  # 1 GB overhead
             .config("spark.driver.memory", "1536m")       # 2 GB driver memory
             .config("spark.sql.shuffle.partitions", 8)    # 2× cores
-            .config("spark.sql.adaptive.shuffle.targetPostShuffleInputSize", "64MB") # no more need to set partions
+            .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "64MB") # no more need to set partions
             .config("spark.databricks.delta.optimizeWrite.enabled", "true")
             .config("spark.databricks.delta.autoCompact.enabled", "true")
 
@@ -111,7 +111,7 @@ def init_spark(app_name: str = None,
             .config("spark.driver.memory", "2048m")
             .config("spark.executor.memoryOverhead", "512m")  # optional, JVM overhead
             .config("spark.sql.shuffle.partitions", 12) # slightly more partitions for parallelism
-            .config("spark.sql.adaptive.shuffle.targetPostShuffleInputSize", "64MB") # no more need to set partions
+            .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "64MB") # no more need to set partions
             .config("spark.databricks.delta.optimizeWrite.enabled", "true")
             .config("spark.databricks.delta.autoCompact.enabled", "true")
             .config("spark.default.parallelism", 12)
@@ -129,7 +129,7 @@ def init_spark(app_name: str = None,
             .config("spark.driver.memory", "512m")       # driver memory 512 MB
             .config("spark.executor.memoryOverhead", "128m")  # small JVM overhead
             .config("spark.sql.shuffle.partitions", 1)   # only 1 shuffle partition
-            .config("spark.sql.adaptive.shuffle.targetPostShuffleInputSize", "64MB")
+            .config("spark.sql.adaptive.advisoryPartitionSizeInBytes", "64MB")
             .config("spark.databricks.delta.optimizeWrite.enabled", "true")
             .config("spark.databricks.delta.autoCompact.enabled", "true")
             .config("spark.default.parallelism", 1)      # default parallelism = 1

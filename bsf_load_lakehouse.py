@@ -326,7 +326,7 @@ def load_signals(batch_size=1000):
   
         for tf, tf_window in timeframes_items:
             tf_start = time.time()  # Track total time per user
-            print(f"🔄 Processing {tf:<6} for user {user_id} ...")
+            print(f"🔄 Processing {tf:<6} for user {user_id} - profile {profile.capitalize()} ...")
             df_list = []
             #raise RuntimeError("⚠️ This notebook is blocked. Do NOT run all cells without checking!")
             # Process companies in parallel
@@ -365,11 +365,12 @@ def load_candidates():
 
     for user in users:
         user_start = time.time()
-        print(f"\n🔄 Processing user {user} ...")
+        
         
         user_id = user["UserId"]
         profile = user["TemplateProfile"]
         username = user["UserName"]
+        print(f"\n🔄 Processing user {user_id} - profile {profile.capitalize()} ...")
         
         # Load user-specific settings
         settings = load_settings(str(profile))["phases"]
