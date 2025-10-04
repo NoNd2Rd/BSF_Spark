@@ -6,7 +6,7 @@ import shutil
 from datetime import datetime, date, timedelta
 import requests
 import json
-from bsf_config import load_settings
+from bsf_settings import load_settings
 
 
 import pandas as pd
@@ -196,10 +196,17 @@ class DBUtils:
             # Table exists → merge normally
             target = DeltaTable.forName(self.spark, table_name)
             cond = " AND ".join([f"t.{k} = s.{k}" for k in merge_keys])
+            # Collect all columns from source
+            src_cols = src_df.columns
+            # Build update set dynamically (exclude merge keys if you don’t want them updated)
+            update_set = {c: f"s.{c}" for c in src_cols}
+            # Build insert values dynamically
+            insert_vals = {c: f"s.{c}" for c in src_cols}
+    
             target.alias("t") \
                   .merge(sdf.alias("s"), cond) \
-                  .whenMatchedUpdateAll() \
-                  .whenNotMatchedInsertAll() \
+                  .whenMatchedUpdateAll(set=update_set) \
+                  .whenNotMatchedInsertAll(values=insert_vals) \
                   .execute()
         else:
             # Table does not exist yet → first write with partitioning
@@ -435,8 +442,7 @@ class DBUtils:
 
     def create_bsf(self, engine, user, username, profile, df_dict):
         settings = load_settings(profile)
-
-        settings_json = json.dumps(template_settings)
+        settings_json = json.dumps(settings)
         # -----------------------------
         # Optional: show counts
         # -----------------------------
@@ -444,22 +450,12 @@ class DBUtils:
             # Outer loop: per timeframe
             print(f"     ✅ Processing timeframe: {tf}")
             
-            if tf == "Daily":
-                generate_end_date = date.today() + timedelta(days=3)
-                days_to_hold = 1
-                seasonal_s_m = 3 #can't be 1
-            elif tf == "Short":
-                generate_end_date = date.today() + timedelta(days=7)
-                days_to_hold = 3
-                seasonal_s_m = 3
-            elif tf == "Swing":
-                generate_end_date = date.today() + timedelta(days=11)
-                days_to_hold = 5
-                seasonal_s_m = 5
-            else:
-                generate_end_date = date.today() + timedelta(days=21)
-                days_to_hold = 10
-                seasonal_s_m = 10
+            days_to_hold = settings["timeframe_map"].get(tf, 1)
+            seasonal_s_m = days_to_hold +1 # Can't be 1 
+            
+            generate_start_date = date.today() + timedelta(days=1)
+            generate_end_date = date.today() + timedelta(days=days_to_hold * 3 + 1)
+            
             sql = '''
                 INSERT INTO template (
                     UserId, IndustryId, MarketSectorId, ParentTemplateId, Name, Description, ScreenImage,
@@ -492,10 +488,10 @@ class DBUtils:
                 "IndustryId": 1,
                 "MarketSectorId": 1,
                 "ParentTemplateId": None,
-                "Name": f"BSF Automatic Build - for {profile.capitalize()} account",
+                "Name": f"BSF Automatic {tf} Build - for {profile.capitalize()} account",
                 "Description": f"ML generated template for timeframe: {tf}",
                 "ScreenImage": None,
-                "GenerateStartDate": date.today() + timedelta(days=1),
+                "GenerateStartDate": generate_start_date,
                 "GenerateEndDate": generate_end_date,
                 "DaysToHold": days_to_hold,
                 "EmailPortfolio": 1,
