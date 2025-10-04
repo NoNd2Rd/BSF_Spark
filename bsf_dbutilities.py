@@ -450,9 +450,9 @@ class DBUtils:
         from pyspark.sql import functions as F
         
         # Cast key columns to Integer
-        sdf = sdf.withColumn("UserId", F.col("UserId").cast(IntegerType()))
-        sdf = sdf.withColumn("CompanyId", F.col("CompanyId").cast(IntegerType()))
-        sdf = sdf.withColumn("TimeFrame", F.col("TimeFrame").cast("string"))
+        #sdf = sdf.withColumn("UserId", F.col("UserId").cast(IntegerType()))
+        #sdf = sdf.withColumn("CompanyId", F.col("CompanyId").cast(IntegerType()))
+        #sdf = sdf.withColumn("TimeFrame", F.col("TimeFrame").cast("string"))
         # Columns to keep
         good_cols = [
             "UserId", "CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose", "Return", "TomorrowReturn",
@@ -477,7 +477,7 @@ class DBUtils:
         ]
     
         # Filter columns
-        sdf = sdf.select(*[c for c in keep_cols if c in sdf.columns])
+        #sdf = sdf.select(*[c for c in keep_cols if c in sdf.columns])
     
         # Latest row per company
         latest_sdf = sdf.withColumn("row_num", F.row_number().over(
