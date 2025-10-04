@@ -662,7 +662,8 @@ def select_ml_columns(df, tf, tf_window=5, profile="default"):
         "ThreeWhiteSoldiers", "ThreeBlackCrows", "GapUp", "GapDown", "ClimacticCandle", "NearHigh", "NearLow",
         
         # Pattern summary stats
-        "PatternCount", "PatternScoreNorm", "SignalStrength",
+        "PatternType", "PatternCount", "PatternScoreNorm", "SignalStrength",
+        "BullCount","BearCount",
         "BullishPctRaw", "BearishPctRaw", "BullishPctDirectional", "BearishPctDirectional",
         
         # Trend / momentum
