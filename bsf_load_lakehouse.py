@@ -17,14 +17,16 @@ from pyspark.sql.functions import broadcast
 from bsf_settings import load_settings
 from bsf_env import init_spark, init_mariadb_engine
 from bsf_dbutilities import DBUtils
-from bsf_candlesticks import (
-    add_candle_patterns_optimized,
-    add_trend_filters_optimized,
-    finalize_signals_optimized,
-    add_signal_strength_optimized,
-    add_batch_metadata_optimized,
-    compute_fundamental_score_optimized,
-    add_confirmed_signals_optimized
+from bsf_candlesticks_simpler import (
+    step1_add_candle_patterns,
+    step1_add_candle_patterns_dynamic,
+    step2_add_trend_filters_optimized,
+    step3_add_confirmed_signals_optimized,
+    step4_compute_fundamental_score_optimized,
+    step5_finalize_signals,
+    step6_add_signal_strength_vectorized,
+    add_batch_metadata_optimized
+
 )
 from bsf_candidates import phase_1, phase_2, phase_3
 
@@ -78,7 +80,7 @@ def prepare_lakehouse_environment(mode: str = None, option: str = None, db_name:
 
 def load_company(chunk_size=2500):
     db.clear_hive_table('bsf', 'company')
-    cmp_query = "SELECT * FROM company WHERE ListingExchange IN (1,2,3,16)"
+    cmp_query = "SELECT * FROM company WHERE ListingExchange IN (1,2,3,16) AND CompanyId = 52"
     pdf_iterator = pd.read_sql(cmp_query, engine, chunksize=chunk_size)
     batch_list = []
     for chunk in tqdm(pdf_iterator, desc="    Processing Company chunks"):
@@ -179,14 +181,14 @@ def load_history(option='full', chunk_size=10000):
         FROM companyfundamental
         WHERE CompanyId IN {company_list}
     """
-    print (hist_query)
+    #print (hist_query)
     pdf_iterator = pd.read_sql(hist_query, engine, chunksize=chunk_size)
     batch_list = []
     for chunk in tqdm(pdf_iterator, desc="    Processing History chunks"):
         batch_list.append(chunk)
         if len(batch_list) == 10:
             pdf_batch = pd.concat(batch_list, ignore_index=True)
-            db.write_history(pdf_batch, show_stats=False)
+            db.write_history(pdf_batch, show_stats=True)
             data_written = True
             batch_list = []
     
@@ -355,6 +357,92 @@ def load_signals(batch_size=1000):
 
     print("✅ All signals processed.")
 
+def load_candlesticks(batch_size=1000):
+    for table in ['history_signals', 'history_signals_last_all', 'history_signals_last']:
+        db.clear_hive_table('bsf', table)
+
+    keep_cols = [
+        "UserId", "Profile", "CompanyId", "StockDate", "Open", "High", "Low", "Close", "TomorrowClose",
+        "Return", "TomorrowReturn", "MA", "MA_slope", "UpTrend_MA", "DownTrend_MA",
+        "MomentumUp", "MomentumDown", "ConfirmedUpTrend", "ConfirmedDownTrend", "Volatility",
+        "LowVolatility", "HighVolatility", "SignalStrength", "SignalStrengthHybrid", "ActionConfidence",
+        "BullishStrengthHybrid", "BearishStrengthHybrid", "SignalDuration", "PatternAction",
+        "CandleAction", "UpTrend_Return", "CandidateAction", "Action", "TomorrowAction", "TimeFrame"
+    ]
+
+    df_all = spark.table("bsf.history_signal_driver").toPandas()
+    users = db.get_users(engine)
+     
+    def process_company(cid, user, profile, tf, tf_window):
+        df_company = df_all[df_all["CompanyId"] == cid].copy().sort_values("StockDate")
+        df_tf = (
+            df_company
+            .pipe(step1_add_candle_patterns, tf_window=tf_window, profile=profile)
+            .pipe(step2_add_trend_filters_optimized, timeframe=tf, profile=profile)
+            .pipe(step3_add_confirmed_signals_optimized)
+            .pipe(step4_compute_fundamental_score_optimized, profile=profile)
+            .pipe(step5_finalize_signals, tf=tf, tf_window=tf_window, use_fundamentals=True, profile=profile)
+            .pipe(step6_add_signal_strength_vectorized)
+            .pipe(add_batch_metadata_optimized, timeframe=tf, user=user, profile=profile, ingest_ts=ingest_ts)
+        )
+        return df_tf[keep_cols]
+
+    company_ids = df_all["CompanyId"].unique()
+
+    for user in users:
+        user_id = user["UserId"]
+        profile = user["TemplateProfile"]
+        username = user["UserName"]
+        timeframes_items = load_settings(str(profile))["timeframe_map"].items()
+        
+        user_start = time.time()  # Track total time per user
+  
+        for tf, tf_window in timeframes_items:
+            tf_start = time.time()  # Track total time per user
+            print(f"🔄 Processing {tf:<6} for user {user_id} - profile {profile.capitalize()} ...")
+            #df_list = []
+            #raise RuntimeError("⚠️ This notebook is blocked. Do NOT run all cells without checking!")
+            '''
+            # Process companies in parallel
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = [executor.submit(process_company, cid, user_id, profile, tf, tf_window) for cid in company_ids]
+
+                # Collect results as they complete
+                for future in tqdm(as_completed(futures), total=len(futures), desc="    🔄 Processing companies"):
+                    df_list.append(future.result())
+            '''
+            df_all_companies = df_all.sort_values(["CompanyId", "StockDate"]).copy()
+
+            df_tf = (
+                df_all_companies
+                .pipe(step1_add_candle_patterns, tf_window=tf_window, profile=profile)
+                .pipe(step2_add_trend_filters_optimized, timeframe=tf, profile=profile)
+                .pipe(step3_add_confirmed_signals_optimized)
+                .pipe(step4_compute_fundamental_score_optimized, profile=profile)
+                .pipe(step5_finalize_signals, tf=tf, tf_window=tf_window, use_fundamentals=True, profile=profile)
+                .pipe(step6_add_signal_strength_vectorized)
+                .pipe(add_batch_metadata_optimized, timeframe=tf, user=user, profile=profile, ingest_ts=ingest_ts)
+            )
+            # return df_tf[keep_col
+            
+            # Concatenate and write one DataFrame per user × timeframe
+            if not df_tf.empty:
+                #df_final = pd.concat(df_list, ignore_index=True)
+                run_with_logging(
+                    db.write_signals,
+                    icon="⏳",
+                    is_subtask=True,
+                    title=f"Write Candidate Lakehouse Partition: ({tf})",
+                    df=df_final
+                )
+                print(f"✅ Signals written for {tf} / user {user_id}")
+
+            print(f"⏱️ Time for user {user_id} / timeframe {tf} in {format_elapsed(time.time() - tf_start)}")
+
+        print(f"⏱️ Total time for user for user {user_id} in {format_elapsed(time.time() - user_start)}")
+
+    print("✅ All signals processed.")
+    
 def load_candidates():
     for table in ['final_candidates_enriched', 'final_candidates']:
         db.clear_hive_table('bsf', table)
@@ -404,12 +492,12 @@ def main(mode=None, option="full"):
     db.db_stats(db_name)
 
     if mode == "history":
-        #run_with_logging(load_company, "⏳", True, "Load Company", chunk_size=5000)
+        run_with_logging(load_company, "⏳", True, "Load Company", chunk_size=5000)
         run_with_logging(load_history, "⏳", True, f"Lakehouse History {option} Load",  option=option, chunk_size=10000)
         run_with_logging(db.optimize_table, "⏳", True, "Optimize Table")
     
     elif mode == "signals":
-        run_with_logging(load_signals, "⏳", True, "Load Signals",)
+        run_with_logging(load_candlesticks, "⏳", True, "Load Signals",)
     
     elif mode == "candidates":
         run_with_logging(load_candidates, "⏳", True, "Load Candidates")
